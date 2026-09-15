@@ -1,0 +1,28 @@
+# Déploiement type de l'image l'ent (image publiée sur GHCR).
+#
+#   SESSION_SECRET=$(openssl rand -hex 32) docker compose up -d
+#
+# Attention : dès que SESSION_SECRET est défini, le cookie de session est
+# envoyé avec l'attribut `Secure` — l'app doit donc être servie en HTTPS
+# (reverse proxy en frontal). Voir docs/DOCKER.md.
+services:
+  lent:
+    image: ghcr.io/tom-things/l-ent:latest
+    # Pour builder l'image localement plutôt que de la tirer :
+    # build:
+    #   context: .
+    #   args:
+    #     UNIVERSITY: univ-rennes
+    container_name: lent
+    init: true
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      # Clé de signature des sessions — obligatoire en production.
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET est requis (openssl rand -hex 32)}
+      # Université servie (ou tenant par défaut en multi-tenant).
+      UNIVERSITY: ${UNIVERSITY:-univ-rennes}
+      # Multi-université par sous-domaine : mettre MULTI_TENANT=1
+      MULTI_TENANT: ${MULTI_TENANT:-0}
+      # TENANTS: univ-rennes,univ-exemple

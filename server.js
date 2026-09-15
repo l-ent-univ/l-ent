@@ -97,11 +97,32 @@ function createTenantApp(universityConfig, distDir) {
 const rootApp = express()
 const defaultUniversityId = resolveUniversityId()
 
+// Sonde de vie (healthcheck Docker/orchestrateur), avant le routage tenant
+// qui sert sinon l'app shell sur toutes les URLs inconnues.
+rootApp.get('/healthz', (req, res) => {
+  res.json({ status: 'ok', multiTenant: MULTI_TENANT, university: defaultUniversityId })
+})
+
+// Démarrage + arrêt propre : en conteneur node est PID 1, il ne réagit donc
+// à SIGTERM/SIGINT (docker stop, orchestrateur) que si on les écoute.
+function listen(onReady) {
+  const server = rootApp.listen(PORT, onReady)
+
+  for (const signal of ['SIGTERM', 'SIGINT']) {
+    process.on(signal, () => {
+      server.close(() => process.exit(0))
+      setTimeout(() => process.exit(0), 10_000).unref()
+    })
+  }
+
+  return server
+}
+
 if (!MULTI_TENANT) {
   const universityConfig = await loadServerConfig(defaultUniversityId)
   rootApp.use(createTenantApp(universityConfig, path.join(__dirname, 'dist')))
 
-  rootApp.listen(PORT, () => {
+  listen(() => {
     console.log(`Server is running on http://localhost:${PORT} (university: ${universityConfig.id})`)
   })
 } else {
@@ -141,7 +162,7 @@ if (!MULTI_TENANT) {
     tenantsById.get(resolveTenantId(req))(req, res, next)
   })
 
-  rootApp.listen(PORT, () => {
+  listen(() => {
     console.log(`Server is running on http://localhost:${PORT} (multi-tenant: ${tenantIds.join(', ')}; default: ${defaultUniversityId})`)
   })
 }

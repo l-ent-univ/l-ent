@@ -56,7 +56,10 @@ const entDevAuthPlugin = {
   },
 }
 
+// BUILD_HASH permet de tamponner le build quand git n'est pas disponible
+// (build Docker/CI, le dépôt n'étant pas copié dans l'image).
 const gitHash = (() => {
+  if (process.env.BUILD_HASH) return process.env.BUILD_HASH.trim()
   try { return execSync('git rev-parse --short HEAD').toString().trim() }
   catch { return 'dev' }
 })()

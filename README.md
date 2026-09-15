@@ -73,6 +73,22 @@ npm run start
 
 Le serveur Express écoute sur le port `3000` (configurable via `PORT`).
 
+### Docker
+
+Une image contenant tout le service (frontends buildés + serveur Express) est publiée sur GitHub Container Registry :
+
+```bash
+docker run -d -p 3000:3000 \
+  -e SESSION_SECRET="$(openssl rand -hex 32)" \
+  ghcr.io/tom-things/l-ent:latest
+```
+
+Ou avec Compose : `SESSION_SECRET=$(openssl rand -hex 32) docker compose up -d`.
+
+L'image embarque un bundle par université : la même image sert une seule université ou une instance multi-université (`MULTI_TENANT=1`). Détails, tags, build local et publication : **[docs/DOCKER.md](docs/DOCKER.md)**.
+
+> L'app doit être servie en HTTPS derrière un reverse proxy : avec `SESSION_SECRET` défini, le cookie de session est `Secure`.
+
 ### Variables d'environnement
 
 
@@ -118,6 +134,7 @@ l-ent/
 │   ├── univ-exemple/      #   Université fictive de démonstration
 │   └── example-minimal/   #   Squelette minimal à copier
 ├── server.js              # Lanceur production (mono ou multi-tenant)
+├── Dockerfile             # Image du service entier (build + runtime)
 ├── server/
 │   └── entAuthApp.js      # Backend partagé prod/dev : auth CAS, proxy, API
 ├── adeApi.js              # Client ADE (emploi du temps)

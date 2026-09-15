@@ -1,0 +1,33 @@
+# Sources et artefacts inutiles au build de l'image
+.git
+.github
+.gitignore
+node_modules
+dist
+dist-ssr
+build
+outputs
+docs
+tests
+*.md
+!README.md
+
+# Secrets / locaux
+.env
+.env.*
+*.local
+cookies.txt
+.claude/
+.vscode/
+.idea
+.DS_Store
+
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# Docker
+Dockerfile
+.dockerignore
+docker-compose.yml
