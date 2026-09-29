@@ -677,6 +677,53 @@
   }
 }
 
+/* ── Service cards ── */
+
+.app-card {
+  background-color: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  transition:
+    scale 120ms ease,
+    background-color 160ms ease,
+    box-shadow 160ms ease,
+    border-color 160ms ease;
+}
+
+.app-card:hover,
+.app-card:focus-visible,
+.app-card--active {
+  background-color: var(--color-widget-bg);
+  border-color: var(--color-border);
+  box-shadow: 0 6px 18px -8px var(--color-shadow);
+}
+
+.app-card:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+}
+
+.app-card:active {
+  scale: 0.99;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-card {
+    transition: none;
+  }
+
+  .app-card:active {
+    scale: none;
+  }
+}
+
+/* Keep the dragged-over favorites flat while reordering. */
+.is-dragging .app-card:hover {
+  background-color: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
 /* ── App card favorite star overrides ── */
 
 .app-card-action:hover {
@@ -942,79 +989,4 @@
   .grade-disabled-hover-detail {
     color: rgba(17, 17, 17, 0.68);
   }
-}
-
-/* ── Sidebar favorites: vertical list ── */
-
-.favorites-bar--sidebar > div:not(:first-child) {
-  flex-direction: column;
-  flex-wrap: nowrap;
-  align-items: stretch;
-  gap: 4px;
-  overflow: visible;
-  margin: 0;
-  padding: 0;
-}
-
-.favorites-bar--sidebar .favorites-strip-item {
-  width: 100%;
-  max-width: 100%;
-  min-width: 0;
-  flex-direction: row;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 10px;
-  padding: 6px 0;
-  margin: 0;
-  border-radius: 0;
-  overflow: hidden;
-}
-
-.favorites-bar--sidebar .favorites-strip-item > span:first-child {
-  width: 32px;
-  height: 32px;
-  border-radius: 9px;
-  flex-shrink: 0;
-}
-
-.favorites-bar--sidebar .favorites-strip-item > span:last-child {
-  flex: 1 1 auto;
-  min-width: 0;
-  max-width: 100%;
-  text-align: left;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  -webkit-line-clamp: unset;
-  font-size: 14px;
-  line-height: 1.1;
-  display: block;
-}
-
-/* Skeleton loading state inside sidebar favorites */
-.favorites-bar--sidebar [role="status"] > div {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  width: 100%;
-  min-width: 0;
-  gap: 10px;
-  padding: 6px 0;
-  margin: 0;
-  border-radius: 0;
-}
-
-.favorites-bar--sidebar [role="status"] .badge-placeholder {
-  width: 32px;
-  height: 32px;
-  border-radius: 9px;
-  flex-shrink: 0;
-}
-
-.favorites-bar--sidebar [role="status"] .text-placeholder-shimmer {
-  flex: 1 1 auto;
-  width: auto;
-  max-width: 100%;
-  height: 12px;
-  min-width: 0;
 }

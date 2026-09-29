@@ -34,6 +34,8 @@ import webconference from './webconference.png'
 const APP_ICONS = {
   'moodle - foad': moodle,
   'emplois du temps': emploisDuTemps,
+  'mon emploi du temps': emploisDuTemps,
+  'planning': emploisDuTemps,
   'messagerie': messagerie,
   'annuaire': annuaire,
   'contrat pédagogique': contratPedagogique,
@@ -61,11 +63,13 @@ const APP_ICONS = {
   'téléformation unjf': teleformationUnjf,
   'documentation des services numériques': documentationServices,
   'notes iut lannion': iutlanNotes9,
+  'portail de notes': iutlanNotes9,
   'sésame': sesame,
   'sesame': sesame,
   'sésame - comptes et données personnelles': sesame,
   'recherche documentaire': rechercheUniversitaire,
   'loxya': loxya,
+  'prêt de matériel': loxya,
 }
 
 export function getAppIcon(title = '') {

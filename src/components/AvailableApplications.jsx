@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Icon } from '@iconify/react'
 import universityConfig from '@university'
@@ -173,6 +173,36 @@ function getAppLetter(title = '') {
   return (title.trim()[0] || '?').toUpperCase()
 }
 
+const AppIcon = memo(function AppIcon({ title, isLaunching = false, className = '', letterClassName = 'text-lg' }) {
+  const iconSrc = getAppIcon(title)
+  const letterStyle = iconSrc ? null : getLetterStyle(title)
+
+  return (
+    <span
+      className={`app-icon inline-flex items-center justify-center bg-widget-bg shadow-sm shrink-0 ${className}`}
+      aria-hidden="true"
+      style={letterStyle ? { backgroundColor: letterStyle.bg, color: letterStyle.fg } : undefined}
+    >
+      {isLaunching ? (
+        <Icon icon="carbon:renew" className="badge-icon-spinning w-4 h-4 animate-spin-slow" />
+      ) : iconSrc ? (
+        <img
+          src={iconSrc}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          draggable={false}
+          className="w-full h-full object-contain rounded-[inherit]"
+        />
+      ) : (
+        <span className={`${letterClassName} font-semibold leading-none select-none`}>
+          {getAppLetter(title)}
+        </span>
+      )}
+    </span>
+  )
+})
+
 function normalizeTarget(entry, metadata = {}) {
   const target = getFirstText(
     entry?.parameters?.target,
@@ -220,8 +250,10 @@ function findPortletMetadata(item, lookup) {
   return null
 }
 
+const TITLE_OVERRIDES = universityConfig.services?.titleOverrides ?? {}
+
 function normalizeServiceEntry(entry, metadata = {}, extra = {}) {
-  const title = getFirstText(
+  const portalTitle = getFirstText(
     entry?.title,
     entry?.name,
     metadata?.title,
@@ -229,6 +261,7 @@ function normalizeServiceEntry(entry, metadata = {}, extra = {}) {
     entry?.fname,
     metadata?.fname,
   )
+  const title = TITLE_OVERRIDES[portalTitle.toLowerCase()] ?? portalTitle
 
   const href = toNavigableHref(
     getFirstText(
@@ -393,6 +426,7 @@ function normalizeBootstrapSections(bootstrap) {
 }
 
 const APP_CATEGORIES = universityConfig.services?.categories ?? []
+const SHOW_CATEGORY_FILTERS = universityConfig.features?.serviceCategories === true
 const getAppIcon = universityConfig.services?.getAppIcon ?? (() => null)
 
 function getAppCategory(title = '') {
@@ -824,6 +858,10 @@ function AvailableApplications({
         .map(getApplicationKey)
     )
   }, [searchQuery, orderedFavorites])
+  const favoritesByKey = useMemo(
+    () => new Map(orderedFavorites.map((favorite) => [getApplicationKey(favorite), favorite])),
+    [orderedFavorites],
+  )
   const shouldShowFavoriteRow = viewState.status === 'ready' && orderedFavorites.length > 0
   const shouldHideFavoritesSection = viewState.status === 'empty'
     || (viewState.status === 'ready' && favoriteApplications.length === 0)
@@ -932,14 +970,6 @@ function AvailableApplications({
         const sections = normalizeBootstrapSections(bootstrap)
         const services = normalizeAllServices(bootstrap)
 
-        const extraServices = universityConfig.establishments?.byId?.[establishment]?.extraServices ?? []
-        for (const extraService of [...extraServices].reverse()) {
-          services.unshift({
-            ...extraService,
-            href: toNavigableHref(extraService.href),
-          })
-        }
-
         const nextLaunchTargets = await resolveLaunchTargets([
           ...getFavoriteApplications(sections.sections),
           ...services,
@@ -947,6 +977,23 @@ function AvailableApplications({
         if (isCancelled) {
           return
         }
+
+        // Establishment shortcuts go first. When the portal already lists one
+        // (same resolved host), promote the portal entry instead of duplicating it.
+        const getServiceHost = (service) => getUrlHostname(nextLaunchTargets[getApplicationKey(service)]?.href || service.href)
+        const extraServices = universityConfig.establishments?.byId?.[establishment]?.extraServices ?? []
+        const pinnedServices = extraServices.map((extraService) => {
+          const extraHost = getUrlHostname(extraService.href)
+          const portalIndex = extraHost ? services.findIndex((service) => getServiceHost(service) === extraHost) : -1
+          if (portalIndex !== -1) {
+            return services.splice(portalIndex, 1)[0]
+          }
+          return {
+            ...extraService,
+            href: toNavigableHref(extraService.href),
+          }
+        })
+        services.unshift(...pinnedServices)
 
         setLaunchTargets(nextLaunchTargets)
         setAllServices(services)
@@ -1178,6 +1225,9 @@ function AvailableApplications({
       requestAnimationFrame(() => {
         child.style.transition = 'transform 200ms cubic-bezier(0.2, 0, 0, 1)'
         child.style.transform = ''
+        child.addEventListener('transitionend', () => {
+          child.style.transition = ''
+        }, { once: true })
       })
     }
 
@@ -1504,23 +1554,38 @@ function AvailableApplications({
     setReloadKey((current) => current + 1)
   }
 
-  if (shouldHideFavoritesSection) {
-    return null
-  }
+  const isSidebarFavorites = Boolean(favoritesPortalTarget)
+  const shimmerClassName = 'bg-[linear-gradient(90deg,var(--color-bg-muted)_0%,var(--color-bg-subtle)_50%,var(--color-bg-muted)_100%)] bg-[length:200%_100%] animate-shimmer'
+  // Radii are concentric: item radius = icon radius + item padding.
+  const favoriteListClassName = isSidebarFavorites
+    ? 'flex flex-col gap-0.5'
+    : 'flex flex-wrap gap-1.5 max-md:flex-nowrap max-md:gap-1 max-md:overflow-x-auto max-md:overflow-y-hidden max-md:-mx-4 max-md:px-4 favorites-scroll-hide'
+  const favoriteItemClassName = isSidebarFavorites
+    ? 'flex items-center gap-2.5 w-full p-1.5 rounded-[15px]'
+    : 'inline-flex items-center gap-2.5 max-w-full p-[5px] pr-3.5 rounded-[14px] max-md:flex-col max-md:gap-1.5 max-md:w-[76px] max-md:p-1.5 max-md:rounded-[20px] max-md:shrink-0'
+  const favoriteIconClassName = isSidebarFavorites
+    ? 'w-8 h-8 rounded-[9px]'
+    : 'w-8 h-8 rounded-[9px] max-md:w-[52px] max-md:h-[52px] max-md:rounded-[14px]'
+  const favoriteTitleClassName = isSidebarFavorites
+    ? 'flex-1 min-w-0 text-[14px] font-semibold leading-[1.2] whitespace-nowrap overflow-hidden text-ellipsis'
+    : 'min-w-0 text-[14px] font-semibold leading-[1.2] whitespace-nowrap overflow-hidden text-ellipsis max-md:w-full max-md:text-[12px] max-md:text-center max-md:whitespace-normal max-md:line-clamp-2'
 
-  const favoritesSectionContent = (
-    <section className={`favorites-bar grid gap-[10px] relative text-brand${favoritesPortalTarget ? ' favorites-bar--sidebar' : ''}`} aria-labelledby="favorites-strip-title">
+  const favoritesSectionContent = shouldHideFavoritesSection ? null : (
+    <section className="favorites-bar grid gap-2.5 relative text-brand" aria-labelledby="favorites-strip-title">
       <div className="flex items-center gap-[5px]">
         <Icon icon="carbon:star" className="w-[17px] h-[17px] text-brand shrink-0" aria-hidden="true" />
         <h2 className="m-0 text-base font-medium leading-[1.06]" id="favorites-strip-title">Favoris</h2>
+        {shouldShowFavoriteRow ? (
+          <span className="ml-0.5 text-[13px] font-medium leading-none text-text-muted tabular-nums">{orderedFavorites.length}</span>
+        ) : null}
       </div>
 
       {viewState.status === 'loading' ? (
-        <div className="flex items-center flex-wrap gap-[8px_14px] overflow-visible max-md:flex-nowrap max-md:items-start max-md:gap-0 max-md:overflow-x-auto max-md:-mx-4 max-md:px-4 favorites-scroll-hide" role="status" aria-live="polite">
+        <div className={favoriteListClassName} role="status" aria-live="polite" aria-label="Chargement des favoris">
           {Array.from({ length: 4 }).map((_, index) => (
-            <div key={`loading-favorite-${index}`} className="inline-flex items-center gap-[10px] max-w-full py-2 px-[6px] rounded-[18px] min-w-[140px] max-md:flex-col max-md:items-center max-md:gap-1.5 max-md:py-2 max-md:px-1 max-md:min-w-0 max-md:rounded-xl max-md:w-[76px] max-md:shrink-0" aria-hidden="true">
-              <span className="badge-placeholder inline-flex items-center justify-center w-[47px] h-[47px] rounded-[25px] bg-[linear-gradient(90deg,var(--color-bg-muted)_0%,var(--color-bg-subtle)_50%,var(--color-bg-muted)_100%)] bg-[length:200%_100%] animate-shimmer shrink-0 max-md:w-[52px] max-md:h-[52px] max-md:rounded-[14px]" />
-              <span className="text-placeholder-shimmer w-[92px] h-[14px] rounded-full bg-[linear-gradient(90deg,var(--color-bg-muted)_0%,var(--color-bg-subtle)_50%,var(--color-bg-muted)_100%)] bg-[length:200%_100%] animate-shimmer max-md:w-[48px] max-md:h-[10px]" />
+            <div key={`loading-favorite-${index}`} className={favoriteItemClassName} aria-hidden="true">
+              <span className={`badge-placeholder shrink-0 ${favoriteIconClassName} ${shimmerClassName}`} />
+              <span className={`text-placeholder-shimmer h-3 rounded-full ${isSidebarFavorites ? 'w-[55%]' : 'w-[80px] max-md:w-[48px] max-md:h-2.5'} ${shimmerClassName}`} />
             </div>
           ))}
         </div>
@@ -1539,12 +1604,8 @@ function AvailableApplications({
         </div>
       ) : null}
 
-      {viewState.status === 'empty' ? (
-        <p className="m-0 text-sm font-medium leading-[1.3] text-text-secondary font-body">Aucun favori ENT disponible pour le moment.</p>
-      ) : null}
-
       {shouldShowFavoriteRow ? (
-        <div className={`flex items-center flex-wrap gap-[8px_10px] overflow-visible max-md:flex-nowrap max-md:items-start max-md:gap-3 max-md:overflow-x-auto max-md:overflow-y-hidden max-md:-mx-4 max-md:px-4 favorites-scroll-hide ${isDragging ? '[&_a:hover]:bg-transparent [&_a:focus-visible]:bg-transparent' : ''}`} ref={favoritesRowRef}>
+        <div className={`${favoriteListClassName} ${isDragging ? 'is-dragging' : ''}`} ref={favoritesRowRef}>
           {orderedFavorites.map((application, index) => {
             const applicationKey = getApplicationKey(application)
             const resolvedLaunch = launchTargets[applicationKey]
@@ -1560,7 +1621,7 @@ function AvailableApplications({
               <a
                 key={application.id}
                 data-app-id={application.id}
-                className={`favorites-strip-item inline-flex items-center gap-2.5 max-w-full py-1.5 px-1.5 pr-4 rounded-[16px] text-inherit no-underline transition-[background-color,box-shadow] duration-[120ms] ease-in-out min-w-0 hover:bg-bg-subtle/60 focus-visible:bg-bg-subtle/60 focus-visible:outline-none cursor-pointer max-md:flex-col max-md:items-center max-md:gap-1.5 max-md:py-2 max-md:px-1 max-md:pr-1 max-md:rounded-xl max-md:w-[76px] max-md:shrink-0 ${isLaunching ? 'pointer-events-none cursor-progress' : ''} ${(isRemovingFavorite || isExitingFavorite) ? 'pointer-events-none' : ''} ${isExitingFavorite ? 'animate-favorite-remove' : ''} ${isContextOpen ? 'bg-context-hover' : ''} ${isSearchHighlighted ? 'favorite-search-highlight' : ''}`}
+                className={`favorites-strip-item app-card group relative border text-inherit no-underline min-w-0 cursor-pointer focus-visible:outline-none ${favoriteItemClassName} ${isLaunching ? 'pointer-events-none cursor-progress' : ''} ${(isRemovingFavorite || isExitingFavorite) ? 'pointer-events-none opacity-70' : ''} ${isExitingFavorite ? 'animate-favorite-remove' : ''} ${isContextOpen ? 'app-card--active' : ''} ${isSearchHighlighted ? 'favorite-search-highlight' : ''}`}
                 href={href}
                 target={target || undefined}
                 rel={target === '_blank' ? 'noreferrer' : undefined}
@@ -1576,31 +1637,29 @@ function AvailableApplications({
                 onContextMenu={(event) => handleFavoriteContextMenu(event, application, 'favorite')}
                 onClick={(event) => void handleApplicationClick(event, application)}
               >
-                <span
-                  className="app-icon inline-flex items-center justify-center w-[36px] h-[36px] rounded-[10px] bg-widget-bg shadow-sm text-brand shrink-0 max-md:w-[52px] max-md:h-[52px] max-md:rounded-[14px]"
-                  aria-hidden="true"
-                  style={getAppIcon(application.title) ? undefined : { backgroundColor: getLetterStyle(application.title).bg, color: getLetterStyle(application.title).fg }}
-                >
-                  {isLaunching ? (
-                    <Icon
-                      icon="carbon:renew"
-                      className="badge-icon-spinning w-4 h-4 animate-spin-slow"
-                    />
-                  ) : getAppIcon(application.title) ? (
-                    <img
-                      src={getAppIcon(application.title)}
-                      alt=""
-                      className="w-full h-full object-contain rounded-[inherit]"
-                    />
-                  ) : (
-                    <span className="text-sm font-semibold leading-none select-none">
-                      {getAppLetter(application.title)}
-                    </span>
-                  )}
+                <AppIcon
+                  title={application.title}
+                  isLaunching={isLaunching}
+                  className={favoriteIconClassName}
+                  letterClassName="text-sm max-md:text-base"
+                />
+                <span className={favoriteTitleClassName}>
+                  {isLaunching ? 'Ouverture…' : application.title}
                 </span>
-                <span className="text-[15px] font-semibold leading-[1.06] whitespace-nowrap overflow-hidden text-ellipsis min-w-0 max-md:text-[13px] max-md:leading-[1.2] max-md:text-center max-md:whitespace-normal max-md:line-clamp-2 max-md:overflow-visible">
-                  {isLaunching ? 'Opening...' : application.title}
-                </span>
+                {isSidebarFavorites ? (
+                  <button
+                    type="button"
+                    className="app-card-action flex items-center justify-center w-7 h-7 rounded-full border-none bg-transparent text-text-muted opacity-0 cursor-pointer transition-[opacity,background-color,color] duration-[120ms] ease-in-out shrink-0 group-hover:opacity-70 group-focus-visible:opacity-70 focus-visible:opacity-100"
+                    aria-label={`Retirer ${application.title} des favoris`}
+                    onClick={(event) => {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      void handleUnfavorite(application)
+                    }}
+                  >
+                    <Icon icon="carbon:star-filled" className="w-4 h-4" aria-hidden="true" />
+                  </button>
+                ) : null}
               </a>
             )
           })}
@@ -1620,7 +1679,7 @@ function AvailableApplications({
         : favoritesSectionContent}
 
       {visibleServices.length > 0 ? (
-        <div className={`grid gap-4 text-brand${favoritesPortalTarget ? '' : ' mt-7'}`}>
+        <div className={`grid gap-4 text-brand${favoritesPortalTarget || !favoritesSectionContent ? '' : ' mt-7'}`}>
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-[5px]">
               <Icon icon="carbon:app-switcher" className="w-[17px] h-[17px] text-brand shrink-0" aria-hidden="true" />
@@ -1637,7 +1696,7 @@ function AvailableApplications({
               />
             </div>
           </div>
-          {categories.length > 1 ? (
+          {SHOW_CATEGORY_FILTERS && categories.length > 1 ? (
             <div className="flex items-center gap-2 flex-wrap max-md:flex-nowrap max-md:overflow-x-auto max-md:-mx-4 max-md:px-4 favorites-scroll-hide">
               <button
                 type="button"
@@ -1658,46 +1717,37 @@ function AvailableApplications({
               ))}
             </div>
           ) : null}
-          <div className="grid grid-cols-3 gap-x-6 max-lg:grid-cols-2 max-md:grid-cols-1">
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-2.5 max-md:grid-cols-1 max-md:gap-2">
             {filteredServices.map((service, index) => {
               const applicationKey = getApplicationKey(service)
               const resolvedLaunch = launchTargets[applicationKey]
               const href = resolvedLaunch?.href || service.href
               const target = resolvedLaunch?.target || service.target
               const isBusy = favoriteActionState.removingKey === applicationKey
+              const isLaunching = Boolean(launchingKeys[applicationKey])
               const isContextOpen = contextMenuState.open && getApplicationKey(contextMenuState.application ?? {}) === applicationKey
-              const isFavorite = orderedFavorites.some(f => getApplicationKey(f) === applicationKey)
+              const favoriteEntry = favoritesByKey.get(applicationKey)
+              const isFavorite = Boolean(favoriteEntry)
 
               return (
                 <a
                   key={service.id}
-                  className={`app-card-enter group flex items-center gap-4 py-3 px-2 border-b border-border/40 text-inherit no-underline transition-[background-color] duration-[120ms] ease-in-out min-w-0 hover:bg-bg-subtle/50 focus-visible:bg-bg-subtle/50 focus-visible:outline-none ${isBusy ? 'pointer-events-none opacity-70' : ''} ${isContextOpen ? 'bg-context-hover' : ''}`}
-                  style={{ animationDelay: `${index * 20}ms` }}
+                  className={`app-card app-card-enter group relative flex items-center gap-3 p-2.5 border rounded-[22px] text-inherit no-underline min-w-0 focus-visible:outline-none ${isBusy || isLaunching ? 'pointer-events-none opacity-70' : ''} ${isContextOpen ? 'app-card--active' : ''}`}
+                  style={{ animationDelay: `${Math.min(index, 24) * 20}ms` }}
                   href={href}
                   target={target || undefined}
                   rel={target === '_blank' ? 'noreferrer' : undefined}
+                  aria-busy={isBusy || isLaunching}
                   onMouseEnter={() => warmApplicationLaunch(service)}
                   onFocus={() => warmApplicationLaunch(service)}
                   onContextMenu={(event) => handleFavoriteContextMenu(event, service, 'all')}
                   onClick={(event) => void handleApplicationClick(event, service)}
                 >
-                  <span
-                    className="app-icon inline-flex items-center justify-center w-[44px] h-[44px] rounded-[12px] bg-widget-bg shadow-sm shrink-0"
-                    aria-hidden="true"
-                    style={getAppIcon(service.title) ? undefined : { backgroundColor: getLetterStyle(service.title).bg, color: getLetterStyle(service.title).fg }}
-                  >
-                    {getAppIcon(service.title) ? (
-                      <img
-                        src={getAppIcon(service.title)}
-                        alt=""
-                        className="w-full h-full object-contain rounded-[inherit]"
-                      />
-                    ) : (
-                      <span className="text-lg font-semibold leading-none select-none">
-                        {getAppLetter(service.title)}
-                      </span>
-                    )}
-                  </span>
+                  <AppIcon
+                    title={service.title}
+                    isLaunching={isLaunching}
+                    className="w-[42px] h-[42px] rounded-[12px]"
+                  />
                   <span className="flex flex-col gap-0.5 flex-1 min-w-0">
                     <span className="text-[15px] font-semibold leading-[1.2] whitespace-nowrap overflow-hidden text-ellipsis">{service.title}</span>
                     {service.description ? (
@@ -1706,36 +1756,38 @@ function AvailableApplications({
                   </span>
                   <button
                     type="button"
-                    className="app-card-action flex items-center justify-center w-8 h-8 rounded-full border-none bg-transparent text-text-muted opacity-0 cursor-pointer transition-[opacity,background-color,color] duration-[120ms] ease-in-out shrink-0 group-hover:opacity-60 group-focus-visible:opacity-60 focus-visible:opacity-60"
+                    className={`app-card-action flex items-center justify-center w-8 h-8 rounded-full border-none bg-transparent cursor-pointer transition-[opacity,background-color,color] duration-[120ms] ease-in-out shrink-0 ${isFavorite ? 'text-brand opacity-100' : 'text-text-muted opacity-0 group-hover:opacity-70 group-focus-visible:opacity-70 focus-visible:opacity-100 max-md:opacity-50'}`}
                     aria-label={isFavorite ? 'Retirer des favoris' : 'Ajouter aux favoris'}
+                    aria-pressed={isFavorite}
                     onClick={(event) => {
                       event.preventDefault()
                       event.stopPropagation()
                       if (isFavorite) {
-                        const targetApp = orderedFavorites.find(f => getApplicationKey(f) === applicationKey) || service
-                        void handleUnfavorite(targetApp)
+                        void handleUnfavorite(favoriteEntry)
                       } else {
                         void handleAddFavorite(service)
                       }
                     }}
                   >
-                    <Icon icon="carbon:star" className="w-[18px] h-[18px]" aria-hidden="true" />
+                    <Icon icon={isFavorite ? 'carbon:star-filled' : 'carbon:star'} className="w-[18px] h-[18px]" aria-hidden="true" />
                   </button>
                 </a>
               )
             })}
+            {filteredServices.length === 0 ? (
+              <p className="col-span-full m-0 py-6 text-center text-sm font-medium text-text-secondary font-body">
+                Aucune application ne correspond à votre recherche.
+              </p>
+            ) : null}
           </div>
         </div>
       ) : null}
 
       {contextMenuState.open && contextMenuState.application ? (() => {
         const applicationKey = getApplicationKey(contextMenuState.application)
-        const isFavorite = orderedFavorites.some(f => getApplicationKey(f) === applicationKey)
-        const isAddMode = !isFavorite && contextMenuState.source === 'all'
-
-        const targetApplication = isAddMode
-          ? contextMenuState.application
-          : (orderedFavorites.find(f => getApplicationKey(f) === applicationKey) || contextMenuState.application)
+        const favoriteEntry = favoritesByKey.get(applicationKey)
+        const isAddMode = !favoriteEntry && contextMenuState.source === 'all'
+        const targetApplication = favoriteEntry ?? contextMenuState.application
 
         return (
         <div

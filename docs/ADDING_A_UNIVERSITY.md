@@ -57,6 +57,7 @@ export const features = {
   moodle: false,     // relais de connexion Moodle via Shibboleth WAYF
   grades: false,     // notes ScoDoc — true | false | 'disabled' (pastille visible, données démo)
   weather: { enabled: true, defaultCity: 'Paris' },
+  serviceCategories: false, // filtres par catégorie au-dessus de la grille d'applications (voir services.categories)
   demo: true,        // compte de démonstration (demo@l-ent.app)
 }
 ```
@@ -84,6 +85,7 @@ Un feature à `false` : le serveur répond `{ disabled: true }` sur les endpoint
   Omettez le bloc entier si votre université n'a qu'un seul « établissement ».
 - `services.getAppIcon(title)` — retourne l'icône d'une application ENT à partir de son titre (voir `universities/univ-rennes/app-icons/`). Retournez `null` pour l'icône générique.
 - `services.categories` — mots-clés → catégories de la grille d'applications.
+- `services.titleOverrides` — (optionnel) renomme des applications ENT : `{ 'titre ent en minuscules': 'Titre affiché' }`.
 - `services.isUnavailableApplication(app)` — masque complètement certaines applications.
 - `grades.serviceUrl` (client) — URL publique du service de notes (ScoDoc), ouverte via `/__ent_auth/launch` depuis les widgets et le lien « Mes notes » quand `features.grades === true`.
 - `grades` (copy) — `unavailableTitle`, `unavailableDetail`, `disabledPillLabel` quand `features.grades === 'disabled'` ; `unavailableTitle`/`unavailableDetail` servent aussi de message d'erreur serveur quand ScoDoc ne répond pas.

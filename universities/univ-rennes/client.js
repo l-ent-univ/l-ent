@@ -113,14 +113,18 @@ export default {
   services: {
     // (title) => icon URL | null, for the applications grid.
     getAppIcon,
+    // Lowercased ENT title → title shown in l'ent.
+    titleOverrides: {
+      'mon emploi du temps': 'Planning',
+    },
     // Keyword → category map applied to ENT service titles.
     categories: [
       { label: 'Scolarité', keywords: ['notes', 'dossier étudiant', 'apogée', 'contrat pédagogique', 'stages', 'évaluation orthographique', 'contrats étudiants'] },
       { label: 'Communication', keywords: ['messagerie', 'annuaire', 'listes de diffusion', 'webconférence', 'webconference'] },
       { label: 'Pédagogie', keywords: ['moodle', 'foad', 'mooc', 'modules auto-formatifs', 'création de modules', 'téléformation', 'klaxoon'] },
-      { label: 'Ressources', keywords: ['mediaserver', 'nudgis', 'ori-oai', 'portail des thèses', 'recherche documentaire', 'documentation des services', 'espaces de stockage', 'mise en ligne', 'loxya'] },
+      { label: 'Ressources', keywords: ['mediaserver', 'nudgis', 'ori-oai', 'portail des thèses', 'recherche documentaire', 'documentation des services', 'espaces de stockage', 'mise en ligne', 'loxya', 'prêt de matériel'] },
       { label: 'Compte', keywords: ['sésame', 'sesame', 'compte informatique', 'mfa', 'authentification', "crédits d'impression"] },
-      { label: 'Outils', keywords: ['microsoft 365', 'esup signature', 'emplois du temps', 'assistance'] },
+      { label: 'Outils', keywords: ['microsoft 365', 'esup signature', 'emplois du temps', 'emploi du temps', 'planning', 'assistance'] },
     ],
   },
 }
