@@ -159,7 +159,9 @@ function WidgetRecentMail({ visible = false }) {
     }
   }, [loadMail, state.status])
 
-  if (state.status === 'disabled' || state.status === 'unauthenticated') {
+  // Hidden when the mailbox can't be loaded; the background refresh brings
+  // the card back once the webmail answers again.
+  if (state.status === 'disabled' || state.status === 'unauthenticated' || state.status === 'error') {
     return null
   }
 
@@ -207,15 +209,6 @@ function WidgetRecentMail({ visible = false }) {
         <WidgetListStatus icon="carbon:checkmark-outline" title="Aucun nouveau mail" body="Ta boîte de réception est à jour." />
       ) : null}
 
-      {state.status === 'error' ? (
-        <WidgetListStatus
-          icon="carbon:warning-alt"
-          title="Mails indisponibles"
-          body="La messagerie ne répond pas pour le moment."
-          onRetry={() => void loadMail()}
-          openLabel={webmailHref ? 'Ouvrir la messagerie' : null}
-        />
-      ) : null}
     </article>
   )
 }

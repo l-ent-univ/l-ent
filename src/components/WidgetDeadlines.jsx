@@ -250,7 +250,9 @@ function WidgetDeadlines({ visible = false }) {
     }
   }, [loadDeadlines, state.status])
 
-  if (state.status === 'disabled' || state.status === 'unauthenticated') {
+  // Hidden when Moodle can't be reached; the background refresh brings the
+  // card back once it answers again.
+  if (state.status === 'disabled' || state.status === 'unauthenticated' || state.status === 'error') {
     return null
   }
 
@@ -299,15 +301,6 @@ function WidgetDeadlines({ visible = false }) {
         <WidgetListStatus icon="carbon:checkmark-outline" title="Aucune échéance à venir" body="Rien à rendre pour l’instant, profites-en !" />
       ) : null}
 
-      {state.status === 'error' ? (
-        <WidgetListStatus
-          icon="carbon:warning-alt"
-          title="Moodle indisponible"
-          body="Impossible de récupérer tes échéances."
-          onRetry={() => void loadDeadlines()}
-          openLabel={moodleHref ? 'Ouvrir Moodle' : null}
-        />
-      ) : null}
     </article>
   )
 }

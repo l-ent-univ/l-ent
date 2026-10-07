@@ -372,12 +372,6 @@ function getStatusCopy(widgetState, lookaheadDays = NEXT_CLASS_LOOKAHEAD_DAYS) {
         icon: 'carbon:calendar-settings',
         action: 'Ouvrir l\'emploi du temps',
       }
-    case 'error':
-      return {
-        title: 'Planning indisponible',
-        body: widgetState.errorMessage || 'Réessaie dans quelques instants.',
-        icon: 'carbon:warning-alt',
-      }
     default:
       return {
         title: 'Prochain cours',
@@ -786,7 +780,7 @@ function WidgetNextClass({
   const exactDateLabel = formatExactDateLabel(nextClass?.start)
   const shouldShowExactDateTooltip = Boolean(exactDateLabel && timeLabel && timeLabel !== 'En cours')
   const statusCopy = getStatusCopy(widgetState, lookaheadDays)
-  const isStatusWide = ['unconfigured', 'limited', 'empty', 'paused', 'error'].includes(widgetState.status)
+  const isStatusWide = ['unconfigured', 'limited', 'empty', 'paused'].includes(widgetState.status)
   const openAdePlanning = useCallback(() => {
     if (!ADE_HREF) {
       return
@@ -794,10 +788,6 @@ function WidgetNextClass({
 
     window.open(ADE_HREF, '_blank', 'noopener,noreferrer')
   }, [])
-  const handleRetry = useCallback((event) => {
-    event.stopPropagation()
-    void loadNextClass()
-  }, [loadNextClass])
   const handleKeyDown = useCallback((event) => {
     if (event.key !== 'Enter' && event.key !== ' ') {
       return
@@ -806,6 +796,12 @@ function WidgetNextClass({
     event.preventDefault()
     openAdePlanning()
   }, [openAdePlanning])
+
+  // Hidden when the planning can't be loaded; the background refresh brings
+  // the card back once ADE answers again.
+  if (widgetState.status === 'error') {
+    return null
+  }
 
   return (
     <article
@@ -891,17 +887,7 @@ function WidgetNextClass({
             {statusCopy.body ? (
               <p className="m-0 text-sm leading-[1.35] opacity-70 line-clamp-2" title={statusCopy.body}>{statusCopy.body}</p>
             ) : null}
-            {widgetState.status === 'error' ? (
-              <button
-                type="button"
-                className="self-start inline-flex items-center gap-[5px] min-h-[26px] px-[10px] border border-border-input rounded-full bg-bg-input text-text text-[13px] font-semibold leading-none transition-[background-color] duration-[120ms] ease-in-out hover:bg-bg-subtle"
-                onClick={handleRetry}
-                onKeyDown={(event) => event.stopPropagation()}
-              >
-                <Icon icon="carbon:restart" className="w-[13px] h-[13px] shrink-0" aria-hidden="true" />
-                Réessayer
-              </button>
-            ) : statusCopy.action ? (
+            {statusCopy.action ? (
               <span className="inline-flex items-center gap-1 text-[13px] font-semibold opacity-80">
                 {statusCopy.action}
                 <Icon icon="carbon:arrow-up-right" className="w-[13px] h-[13px] shrink-0" aria-hidden="true" />
