@@ -12,7 +12,7 @@ function AppHeader({ authenticated, checking, onPrimaryAction, onAccountAction }
   return (
     <header className="w-full pt-5 px-6 max-xl:pt-4 max-md:pt-3 max-md:px-3">
       <div className="w-full flex items-center justify-between gap-6 max-xl:gap-[0.9rem] max-md:items-start max-md:gap-3">
-        <a className="inline-flex items-center no-underline min-w-0 rounded-[18px] border border-white bg-widget-bg p-1 pr-3 shadow-[0_1px_3px_rgba(0,0,0,0.06)] dark:border-[rgba(255,255,255,0.08)] max-md:self-start" href="/" aria-label="Retour à l'accueil">
+        <a className="inline-flex items-center no-underline min-w-0 max-md:self-start" href="/" aria-label="Retour à l'accueil">
           <UniversityLockup variant="header" />
         </a>
 
