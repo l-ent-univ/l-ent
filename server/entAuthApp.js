@@ -2320,16 +2320,13 @@ app.get('/__ent_auth/grades', async (req, res) => {
 // The provider-specific code lives in the zimbra* helpers below; everything
 // is normalized to the contract documented in src/entApi.js#getRecentMail.
 //
-// UNVERIFIED (no real credentials available while writing this):
-//   - that the IdP → SP → Zimbra hand-off completes server-side with only the
-//     CAS TGC (no consent page) and ends with a ZM_AUTH_TOKEN cookie;
-//   - whether Partage requires the CSRF token for cookie-authenticated SOAP
-//     (we send it when the web client page exposes one, and fall back to the
-//     REST API, which has no CSRF check);
-//   - the per-message deep link (?view=msg&id=…) surviving the SAML login.
-// Verified by unauthenticated probes: the hosts/redirect chain above, and that
-// partage.univ-rennes.fr/service/soap answers Zimbra JSON faults
-// (service.AUTH_REQUIRED) and /service/home/~/inbox.json is the Zimbra REST API.
+// Verified with a real Rennes account (Oct 2026): the IdP → SP → Zimbra
+// hand-off completes server-side with only the CAS TGC (no consent page) and
+// ends on partage.univ-rennes1.fr/service/preauth with a ZM_AUTH_TOKEN cookie;
+// that final redirect is plain http://, hence getHttpsOrigin(). SOAP
+// SearchRequest/GetFolderRequest work without a CSRF token.
+// Still unverified: the per-message deep link (?view=msg&id=…) surviving the
+// SAML login when opened in the browser.
 
 class MailAuthError extends Error {}
 
@@ -2351,6 +2348,14 @@ function hasZimbraAuthCookie(jar, url) {
 function extractZimbraCsrfToken(html) {
   const match = String(html ?? '').match(/csrfToken\s*[=:]\s*["']([^"']{8,})["']/i)
   return match ? match[1] : null
+}
+
+// Partage's final redirect points at http://; API calls must go over HTTPS
+// (plain HTTP just 302s back to https and drops the request).
+function getHttpsOrigin(url) {
+  const parsed = new URL(url)
+  parsed.protocol = 'https:'
+  return parsed.origin
 }
 
 function assertMailSignInUrl(url) {
@@ -2403,7 +2408,7 @@ async function establishZimbraContext(session) {
 
       // Landed on the webmail with an auth cookie: no need to load the app.
       if (hasZimbraAuthCookie(jar, nextUrl) && !isCasHost(getHostnameFromUrl(nextUrl))) {
-        return { jar, origin: new URL(nextUrl).origin, csrfToken: null, createdAt: Date.now() }
+        return { jar, origin: getHttpsOrigin(nextUrl), csrfToken: null, createdAt: Date.now() }
       }
 
       currentUrl = nextUrl
@@ -2420,7 +2425,7 @@ async function establishZimbraContext(session) {
     if (hasZimbraAuthCookie(jar, currentUrl)) {
       return {
         jar,
-        origin: new URL(currentUrl).origin,
+        origin: getHttpsOrigin(currentUrl),
         csrfToken: extractZimbraCsrfToken(html),
         createdAt: Date.now(),
       }
@@ -2530,7 +2535,7 @@ function normalizeZimbraMessage(message, context) {
     snippet: typeof message?.fr === 'string' ? message.fr.replace(/\s+/g, ' ').trim().slice(0, 280) : '',
     receivedAt: Number.isFinite(timestamp) && timestamp > 0 ? new Date(timestamp).toISOString() : null,
     unread: typeof message?.f === 'string' && message.f.includes('u'),
-    // UNVERIFIED deep link format for the Zimbra Ajax client.
+    // Unverified deep link format for the Zimbra Ajax client.
     href: id ? buildMailLaunchHref(`${context.origin}/?view=msg&id=${encodeURIComponent(id)}`) : null,
   }
 }
