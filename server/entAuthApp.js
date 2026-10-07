@@ -254,6 +254,17 @@ class CookieJar {
     return this.getCookieNamesForHost(hostname).includes(String(cookieName))
   }
 
+  getCookieValue(hostname, cookieName) {
+    const cookie = Array.from(this.store.values()).find((entry) => (
+      entry.name === String(cookieName)
+      && (entry.expiresAt === null || entry.expiresAt > Date.now())
+      && (entry.hostOnly
+        ? entry.domain === hostname
+        : hostname === entry.domain || hostname.endsWith(`.${entry.domain}`))
+    ))
+    return cookie?.value ?? null
+  }
+
   serialize() {
     return Array.from(this.store.entries())
   }
@@ -2336,9 +2347,12 @@ function buildMailLaunchHref(targetUrl) {
   return targetUrl ? `/__ent_auth/launch?url=${encodeURIComponent(targetUrl)}` : null
 }
 
+// /__ent_auth/mail/open hands the server-side Zimbra session to the browser,
+// so the webmail opens already signed in.
 function getMailWebmailHref() {
-  return buildMailLaunchHref(MAIL_WEBMAIL_URL)
+  return MAIL_WEBMAIL_URL ? '/__ent_auth/mail/open' : null
 }
+
 
 function hasZimbraAuthCookie(jar, url) {
   const hostname = getHostnameFromUrl(url)
@@ -2518,7 +2532,7 @@ async function zimbraRestInbox(context) {
   return Array.isArray(payload.m) ? payload.m : []
 }
 
-function normalizeZimbraMessage(message, context) {
+function normalizeZimbraMessage(message) {
   const addresses = Array.isArray(message?.e) ? message.e : []
   const sender = addresses.find((address) => address?.t === 'f') ?? null
   const email = typeof sender?.a === 'string' && sender.a ? sender.a : null
@@ -2536,7 +2550,8 @@ function normalizeZimbraMessage(message, context) {
     receivedAt: Number.isFinite(timestamp) && timestamp > 0 ? new Date(timestamp).toISOString() : null,
     unread: typeof message?.f === 'string' && message.f.includes('u'),
     // Unverified deep link format for the Zimbra Ajax client.
-    href: id ? buildMailLaunchHref(`${context.origin}/?view=msg&id=${encodeURIComponent(id)}`) : null,
+    // Partage can't deep-link through the sign-in handoff: rows open the inbox.
+    href: getMailWebmailHref(),
   }
 }
 
@@ -2570,12 +2585,21 @@ async function queryZimbraInbox(context) {
   }
 
   const messages = rawMessages
-    .map((message) => normalizeZimbraMessage(message, context))
+    .map((message) => normalizeZimbraMessage(message))
     .filter((message) => message.id)
     .sort((left, right) => String(right.receivedAt ?? '').localeCompare(String(left.receivedAt ?? '')))
     .slice(0, MAIL_MAX_MESSAGES)
 
   return { unreadCount, webmailHref: getMailWebmailHref(), messages }
+}
+
+async function getZimbraContext(session, { fresh = false } = {}) {
+  let context = fresh ? null : runtimeMailContexts.get(session.id)
+  if (!context) {
+    context = await establishZimbraContext(session)
+    runtimeMailContexts.set(session.id, context)
+  }
+  return context
 }
 
 async function fetchZimbraRecentMail(session) {
@@ -2612,6 +2636,43 @@ async function fetchRecentMail(session) {
 
   return provider(session)
 }
+
+// 6c. Open the webmail already signed in. Zimbra's /service/preauth accepts
+// an existing auth token (GET ?authtoken=…&isredirect=1), sets ZM_AUTH_TOKEN
+// for the browser and redirects to /mail — so the user skips the SAML/CAS
+// login. Verified on Partage (Oct 2026): POST and redirectURL are rejected
+// (400), so it always lands on the inbox, not on a specific message.
+// Any failure falls back to the regular launch relay.
+app.get('/__ent_auth/mail/open', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store')
+  res.setHeader('Referrer-Policy', 'no-referrer')
+  const fallbackHref = buildMailLaunchHref(MAIL_WEBMAIL_URL) ?? '/'
+  const session = getSessionFromRequest(req)
+
+  if (!session || !FEATURES.mail || MAIL_PROVIDER !== 'zimbra') {
+    return res.redirect(fallbackHref)
+  }
+
+  if (isDemoSession(session)) {
+    return res.redirect(buildDemoMailPayload().webmailHref ?? '/')
+  }
+
+  try {
+    const context = await getZimbraContext(session)
+    const authToken = context.jar.getCookieValue(new URL(context.origin).hostname, 'ZM_AUTH_TOKEN')
+    if (!authToken) {
+      throw new Error('No Zimbra auth token')
+    }
+
+    const preauthUrl = new URL('/service/preauth', context.origin)
+    preauthUrl.searchParams.set('authtoken', authToken)
+    preauthUrl.searchParams.set('isredirect', '1')
+    setSessionCookie(res, session)
+    res.redirect(preauthUrl.toString())
+  } catch {
+    res.redirect(fallbackHref)
+  }
+})
 
 // 6b. Recent mail endpoint
 app.get('/__ent_auth/mail/recent', async (req, res) => {
