@@ -34,6 +34,7 @@ import {
 import WidgetContainer from './components/WidgetContainer'
 import { resolveHeroImage } from './heroImage'
 import { getAvailableWidgets } from './dashboardWidgets'
+import { clearStoredCustomBackground, getStoredCustomBackground, saveCustomBackground } from './customBackground'
 import {
   ENT_ORIGIN,
   buildEntProxyHref,
@@ -964,6 +965,7 @@ function App() {
   const [selectedTp, setSelectedTp] = useState(() => getStoredTpSelection())
   const [nextClassLookaheadDays, setNextClassLookaheadDays] = useState(() => getStoredAdeLookaheadDays())
   const [hiddenWidgets, setHiddenWidgets] = useState(() => getStoredHiddenWidgets())
+  const [customBackground, setCustomBackground] = useState(() => getStoredCustomBackground())
   const [showAppDescriptions, setShowAppDescriptions] = useState(() => getStoredShowAppDescriptions())
   // Lookahead actually fed to the next-class widget. Re-synced only while the
   // account modal is closed, so moving the slider doesn't refetch the widget
@@ -1266,6 +1268,7 @@ function App() {
     setSelectedTp(getStoredTpSelection(sessionState.user))
     setNextClassLookaheadDays(getStoredAdeLookaheadDays(sessionState.user))
     setHiddenWidgets(getStoredHiddenWidgets(sessionState.user))
+    setCustomBackground(getStoredCustomBackground(sessionState.user))
     setShowAppDescriptions(getStoredShowAppDescriptions(sessionState.user))
     setHasHydratedProfile(false)
     setTpOnboardingState(createEmptyTpOnboardingState())
@@ -1745,7 +1748,22 @@ function App() {
     setNextClassLookaheadDays(days)
   }, [sessionState.user])
 
-  const heroImage = useMemo(() => resolveHeroImage(establishment), [establishment])
+  const heroImage = useMemo(() => (
+    customBackground
+      ? { src: customBackground, position: null, credit: null }
+      : resolveHeroImage(establishment)
+  ), [customBackground, establishment])
+
+  // Rejects with a user-facing message (shown in Mon compte) on failure.
+  const handleCustomBackgroundChange = useCallback(async (file) => {
+    const dataUrl = await saveCustomBackground(file, sessionState.user)
+    setCustomBackground(dataUrl)
+  }, [sessionState.user])
+
+  const handleCustomBackgroundReset = useCallback(() => {
+    clearStoredCustomBackground()
+    setCustomBackground(null)
+  }, [])
   const [heroHeight, setHeroHeight] = useState(null)
   const heroObserverRef = useRef(null)
 
@@ -2470,6 +2488,10 @@ function App() {
         onLookaheadChange={handleNextClassLookaheadChange}
         widgetToggles={widgetToggles}
         onWidgetVisibilityChange={handleWidgetVisibilityChange}
+        backgroundPreviewSrc={heroImage.src}
+        hasCustomBackground={Boolean(customBackground)}
+        onCustomBackgroundChange={handleCustomBackgroundChange}
+        onCustomBackgroundReset={handleCustomBackgroundReset}
         showAppDescriptions={showAppDescriptions}
         onShowAppDescriptionsChange={handleShowAppDescriptionsChange}
       />

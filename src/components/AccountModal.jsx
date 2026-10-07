@@ -257,6 +257,67 @@ function SettingSwitch({ icon, label, checked, onChange }) {
   )
 }
 
+const SETTING_BUTTON_CLASSES = 'inline-flex h-9 items-center justify-center gap-[6px] rounded-full border border-white bg-white px-3 font-body text-[14px] font-medium text-[var(--color-text)] shadow-[0_1px_3px_rgba(0,0,0,0.06)] transition-colors duration-[120ms] ease-in-out hover:bg-[#f8f7f3] cursor-pointer disabled:cursor-wait disabled:opacity-60 dark:border-[var(--color-border)] dark:bg-[var(--color-bg-surface)] dark:shadow-[0_1px_3px_rgba(0,0,0,0.3)] dark:hover:bg-[var(--color-bg-subtle)]'
+
+// Custom dashboard background: preview of the current one, pick an image,
+// or go back to the default photo.
+function BackgroundSetting({ previewSrc, hasCustom, onChange, onReset }) {
+  const inputRef = useRef(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  const handleFile = async (event) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+
+    setBusy(true)
+    setError('')
+    try {
+      await onChange(file)
+    } catch (changeError) {
+      setError(changeError instanceof Error ? changeError.message : String(changeError))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-[10px]">
+      <div className="flex items-center justify-between gap-3">
+        <span className="flex h-[17px] min-w-0 items-center gap-[5px]">
+          <Icon icon="carbon:image" className="h-[17px] w-[17px] shrink-0 text-[var(--color-text)]" aria-hidden="true" />
+          <span className="font-body text-[16px] font-medium leading-[16.96px] tracking-[-0.3125px] text-[var(--color-text)]">
+            Fond d’écran
+          </span>
+        </span>
+        {previewSrc ? (
+          <span
+            className="block h-9 w-16 shrink-0 rounded-[10px] border border-[var(--color-border)] bg-cover bg-center"
+            style={{ backgroundImage: `url("${previewSrc}")` }}
+            aria-hidden="true"
+          />
+        ) : null}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <button type="button" className={SETTING_BUTTON_CLASSES} onClick={() => inputRef.current?.click()} disabled={busy}>
+          <Icon icon="carbon:upload" className="h-[15px] w-[15px] shrink-0" aria-hidden="true" />
+          {busy ? 'Enregistrement…' : 'Choisir une image'}
+        </button>
+        {hasCustom ? (
+          <button type="button" className={SETTING_BUTTON_CLASSES} onClick={() => { setError(''); onReset() }} disabled={busy}>
+            Rétablir la photo
+          </button>
+        ) : null}
+        <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
+      </div>
+      {error ? (
+        <p className="m-0 font-body text-[13px] font-semibold leading-[1.2] text-[#b91c1c] dark:text-[var(--color-error)]" role="alert">{error}</p>
+      ) : null}
+    </div>
+  )
+}
+
 function AccountModal({
   open,
   onClose,
@@ -273,6 +334,10 @@ function AccountModal({
   onLookaheadChange,
   widgetToggles = [],
   onWidgetVisibilityChange,
+  backgroundPreviewSrc = null,
+  hasCustomBackground = false,
+  onCustomBackgroundChange,
+  onCustomBackgroundReset,
   showAppDescriptions = false,
   onShowAppDescriptionsChange,
 }) {
@@ -537,11 +602,19 @@ function AccountModal({
               </>
             ) : null}
 
-            {typeof onShowAppDescriptionsChange === 'function' ? (
+            {typeof onShowAppDescriptionsChange === 'function' || typeof onCustomBackgroundChange === 'function' ? (
               <>
                 <div className="h-px w-full bg-[var(--color-border)]" aria-hidden="true" />
 
                 <div className="flex flex-col gap-[14px]">
+                  {typeof onCustomBackgroundChange === 'function' ? (
+                    <BackgroundSetting
+                      previewSrc={backgroundPreviewSrc}
+                      hasCustom={hasCustomBackground}
+                      onChange={onCustomBackgroundChange}
+                      onReset={onCustomBackgroundReset}
+                    />
+                  ) : null}
                   {typeof onShowAppDescriptionsChange === 'function' ? (
                     <SettingSwitch
                       icon="carbon:text-short-paragraph"
