@@ -5,7 +5,6 @@ import universityConfig from '@university'
 import universityShowcase from '../../universities/showcase.js'
 import lentLogo from '../assets/lent-logo.svg'
 import toutaticeLoginHero from '../assets/login/toutatice-login-hero.webp'
-import toutaticeClouds from '../assets/login/toutatice-clouds.webp'
 import LentButton from './LentButton'
 import AboutModal from './AboutModal'
 
@@ -94,31 +93,6 @@ function LoginPage({
       />
 
       <div className="relative isolate flex min-h-screen min-w-0 flex-[1_1_auto] items-stretch justify-center bg-[#f5f3ed] dark:bg-bg max-4xl:w-full max-md:justify-start">
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-[416px] overflow-hidden" aria-hidden="true">
-          {/* Centered without translate: a transform would create a stacking
-              context and break the clouds' soft-light blend with the page bg. */}
-          <div className="absolute left-[calc(50%_-_376px)] top-0 h-[416px] w-[752px]">
-            {/* Each cloud is stacked twice: soft-light alone is too faint,
-                doubling the layer deepens the blend. */}
-            {[0, 1].map((layer) => (
-              <img
-                key={`right-${layer}`}
-                className="absolute left-[240px] top-[-92px] aspect-[1920/1292] w-[670px] max-w-none object-cover [mix-blend-mode:soft-light] dark:[mix-blend-mode:overlay] opacity-87"
-                src={toutaticeClouds}
-                alt=""
-              />
-            ))}
-            {[0, 1].map((layer) => (
-              <img
-                key={`left-${layer}`}
-                className="absolute left-[-298px] top-[-35px] aspect-[1920/1292] w-[670px] max-w-none -scale-x-100 object-cover [mix-blend-mode:soft-light] dark:[mix-blend-mode:overlay] opacity-87"
-                src={toutaticeClouds}
-                alt=""
-              />
-            ))}
-          </div>
-        </div>
-
         <button
           type="button"
           className="absolute top-6 right-6 z-30 inline-flex h-[38px] w-[38px] items-center justify-center rounded-full border-0 bg-transparent text-text-muted transition-colors duration-120 hover:text-text max-3xl:top-5 max-3xl:right-5 max-md:top-4 max-md:right-4"
