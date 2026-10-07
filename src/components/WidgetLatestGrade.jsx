@@ -71,7 +71,7 @@ function DisabledWidgetLatestGrade({ visible }) {
 
   return (
     <article
-      className={`${CARD_CLASSES} grade-feature-disabled ${visible ? 'widget-card-visible delay-[280ms]' : ''}`}
+      className={`${CARD_CLASSES} grade-feature-disabled ${visible ? 'widget-card-visible' : ''}`}
       aria-label={`Dernière note indisponible: ${GRADES_UNAVAILABLE_MESSAGE}`}
       aria-disabled="true"
       tabIndex={0}

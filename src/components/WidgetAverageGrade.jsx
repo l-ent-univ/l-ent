@@ -54,7 +54,7 @@ function DisabledWidgetAverageGrade({ visible }) {
 
   return (
     <article
-      className={`${CARD_CLASSES} grade-feature-disabled ${visible ? 'widget-card-visible delay-[280ms]' : ''}`}
+      className={`${CARD_CLASSES} grade-feature-disabled ${visible ? 'widget-card-visible' : ''}`}
       aria-label={`Moyenne générale indisponible: ${GRADES_UNAVAILABLE_MESSAGE}`}
       aria-disabled="true"
       tabIndex={0}
@@ -108,7 +108,7 @@ function LiveWidgetAverageGrade({ visible }) {
 
   return (
     <article
-      className={`${CARD_CLASSES} border-white bg-widget-bg flex flex-col gap-[6px] text-text ${canOpen ? 'cursor-pointer' : ''} ${visible ? 'widget-card-visible delay-[280ms]' : ''}`}
+      className={`${CARD_CLASSES} border-white bg-widget-bg flex flex-col gap-[6px] text-text ${canOpen ? 'cursor-pointer' : ''} ${visible ? 'widget-card-visible' : ''}`}
       aria-label={`Moyenne générale: ${avgDisplay} sur 20${promoDisplay ? ` (promo: ${promoDisplay})` : ''}`}
       role={canOpen ? 'link' : undefined}
       tabIndex={canOpen ? 0 : undefined}

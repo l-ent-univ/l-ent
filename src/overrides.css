@@ -9,11 +9,18 @@
   border-color: rgb(255 255 255 / 0.65);
   -webkit-backdrop-filter: blur(20px) saturate(1.5);
   backdrop-filter: blur(20px) saturate(1.5);
+  /* Intro: cards rise and settle from a slightly smaller scale, staggered in
+     reading order via --widget-delay (set per widget below). Hover colour
+     changes stay instant-ish and undelayed. */
+  --widget-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --widget-delay: 0ms;
   opacity: 0;
-  transform: translateX(-16px);
-  transition-property: opacity, transform;
-  transition-duration: 320ms;
-  transition-timing-function: ease;
+  transform: translateY(10px) scale(0.965);
+  transform-origin: 50% 80%;
+  transition-property: opacity, transform, background-color;
+  transition-duration: 560ms, 900ms, 150ms;
+  transition-timing-function: var(--widget-ease), var(--widget-ease), ease;
+  transition-delay: var(--widget-delay), var(--widget-delay), 0ms;
   will-change: opacity, transform;
 }
 
@@ -560,7 +567,7 @@
 
 .widget-card-visible {
   opacity: 1;
-  transform: translateX(0);
+  transform: none;
 }
 
 /* ── Context menu transform-origin from CSS variables ── */
@@ -576,10 +583,7 @@
   background-color: var(--color-widget-bg);
   background-image: var(--class-gradient, none);
   background-repeat: no-repeat;
-  transition-property: opacity, transform, background-color;
-  transition-duration: 320ms, 320ms, 150ms;
-  transition-delay: 280ms, 280ms, 0ms;
-  transition-timing-function: ease;
+  --widget-delay: 70ms;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -592,14 +596,11 @@
   background-color: var(--color-bg-subtle);
 }
 
-/* ── Grade widget transition (adds background-color for hover) ── */
+/* ── Grade widget intro order ── */
 
 .latest-grade-widget,
 .average-grade-widget {
-  transition-property: opacity, transform, background-color;
-  transition-duration: 320ms, 320ms, 150ms;
-  transition-delay: 280ms, 280ms, 0ms;
-  transition-timing-function: ease;
+  --widget-delay: 140ms;
 }
 
 /* ── Grade widget hover state ── */
@@ -625,10 +626,7 @@
 /* ── Recent mail widget ── */
 
 .recent-mail-widget {
-  transition-property: opacity, transform, background-color;
-  transition-duration: 320ms, 320ms, 150ms;
-  transition-delay: 340ms, 340ms, 0ms;
-  transition-timing-function: ease;
+  --widget-delay: 210ms;
 }
 
 .recent-mail-widget.cursor-pointer:hover {
@@ -738,10 +736,7 @@
 /* ── Moodle deadlines widget ── */
 
 .moodle-deadlines-widget {
-  transition-property: opacity, transform, background-color;
-  transition-duration: 320ms, 320ms, 150ms;
-  transition-delay: 400ms, 400ms, 0ms;
-  transition-timing-function: ease;
+  --widget-delay: 280ms;
 }
 
 .moodle-deadlines-widget.cursor-pointer:hover {
