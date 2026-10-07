@@ -30,6 +30,7 @@ import {
   buildDemoGradesPayload,
   buildDemoLayoutData,
   buildDemoLayoutDocData,
+  buildDemoMailPayload,
   buildDemoMarketplaceEntries,
   buildDemoPlanningPayload,
   buildDemoPortletFragment,
@@ -57,6 +58,19 @@ const ADE_ORIGIN = universityConfig.origins.ade ?? null
 const MOODLE_ORIGIN = universityConfig.origins.moodle ?? null
 const PLANNING_ORIGIN = universityConfig.origins.planning ?? null
 const GRADES_ORIGIN = universityConfig.grades?.origin ?? null
+// Mail (see universities/<id>/server.js → mail, docs/ADDING_A_UNIVERSITY.md).
+const MAIL_PROVIDER = universityConfig.mail?.provider ?? null
+const MAIL_ORIGIN = universityConfig.mail?.origin ?? null
+const MAIL_WEBMAIL_URL = universityConfig.mail?.webmailUrl ?? MAIL_ORIGIN
+const MAIL_MAX_MESSAGES = Math.min(Math.max(Number(universityConfig.mail?.maxMessages) || 5, 1), 20)
+// Domains the webmail sign-in chain may visit (webmail, SAML SP, IdP, CAS).
+// Anything else — or any non-HTTPS URL — aborts the chain.
+const MAIL_SIGN_IN_DOMAINS = [
+  ...(universityConfig.mail?.signInDomains ?? []),
+  ...[MAIL_ORIGIN, MAIL_WEBMAIL_URL, universityConfig.origins?.cas]
+    .map((url) => { try { return new URL(url).hostname } catch { return null } })
+    .filter(Boolean),
+].map((domain) => String(domain).toLowerCase())
 
 const ENT_HOST = new URL(ENT_ORIGIN).hostname
 const CAS_HOST = new URL(CAS_ORIGIN).hostname
@@ -77,6 +91,7 @@ function isCasHost(hostname) {
 const LOCAL_SESSION_COOKIE = 'ent_front_session'
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000
 const GRADES_CACHE_TTL_MS = 10 * 60 * 1000
+const MAIL_CACHE_TTL_MS = 2 * 60 * 1000
 const LOGIN_RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000
 const LOGIN_RATE_LIMIT_BLOCK_MS = 15 * 60 * 1000
 const LOGIN_RATE_LIMIT_MAX_ATTEMPTS_PER_IP = 10
@@ -87,6 +102,12 @@ const MAX_PERSISTED_COOKIE_VALUE_LENGTH = 1024
 const SESSION_SECRET = process.env.SESSION_SECRET || 'dev-only-insecure-secret'
 const runtimeSessions = new Map()
 const runtimeGradesCache = new Map()
+// sessionId → { cachedAt, data }: short-lived inbox snapshot.
+const runtimeMailCache = new Map()
+// sessionId → { createdAt, jar, origin, csrfToken }: webmail login context.
+// Kept runtime-only (never persisted in the session cookie) so the IdP/SP/
+// webmail cookies don't bloat the 4 KB session cookie.
+const runtimeMailContexts = new Map()
 const loginRateLimitByIp = new Map()
 const loginRateLimitByUsername = new Map()
 
@@ -420,6 +441,8 @@ function pruneRuntimeSessions() {
     if (!session?.createdAt || now - session.createdAt > SESSION_TTL_MS) {
       runtimeSessions.delete(sessionId)
       runtimeGradesCache.delete(sessionId)
+      runtimeMailCache.delete(sessionId)
+      runtimeMailContexts.delete(sessionId)
     }
   }
 }
@@ -461,6 +484,37 @@ function clearCachedGrades(sessionId) {
   }
 
   runtimeGradesCache.delete(sessionId)
+}
+
+function getCachedMail(sessionId) {
+  if (!sessionId) {
+    return null
+  }
+
+  const entry = runtimeMailCache.get(sessionId)
+  if (!entry || Date.now() - entry.cachedAt > MAIL_CACHE_TTL_MS) {
+    runtimeMailCache.delete(sessionId)
+    return null
+  }
+
+  return entry.data
+}
+
+function setCachedMail(sessionId, mail) {
+  if (!sessionId) {
+    return
+  }
+
+  runtimeMailCache.set(sessionId, { cachedAt: Date.now(), data: mail })
+}
+
+function clearMailCaches(sessionId) {
+  if (!sessionId) {
+    return
+  }
+
+  runtimeMailCache.delete(sessionId)
+  runtimeMailContexts.delete(sessionId)
 }
 
 function setSessionCookie(res, session) {
@@ -1355,6 +1409,7 @@ function clearSensitiveSessionCaches(session) {
   const cacheScope = getPlanningCacheScope(session)
 
   clearCachedGrades(sessionId)
+  clearMailCaches(sessionId)
   clearAdeCaches(cacheScope)
   clearPlanningCaches(cacheScope)
   clearPortalCaches(cacheScope)
@@ -1689,6 +1744,7 @@ const FEATURE_GATED_PREFIXES = [
   ['/__ent_auth/ade', 'ade'],
   ['/__ent_auth/planning', 'planning'],
   ['/__ent_auth/grades', 'grades'],
+  ['/__ent_auth/mail', 'mail'],
 ]
 
 app.use((req, res, next) => {
@@ -2250,6 +2306,349 @@ app.get('/__ent_auth/grades', async (req, res) => {
     })
   } catch (error) {
     res.status(500).json({
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
+})
+
+// ---------------------------------------------------------------------------
+// Mail ("Mails récents" widget)
+// ---------------------------------------------------------------------------
+// Université de Rennes' "Messagerie" is RENATER Partage, a hosted Zimbra:
+// partage.univ-rennes.fr → sp.partage.renater.fr (Shibboleth SP) →
+// ident-shib.univ-rennes1.fr (Shibboleth IdP) → sso-cas.univ-rennes.fr (CAS).
+// The provider-specific code lives in the zimbra* helpers below; everything
+// is normalized to the contract documented in src/entApi.js#getRecentMail.
+//
+// UNVERIFIED (no real credentials available while writing this):
+//   - that the IdP → SP → Zimbra hand-off completes server-side with only the
+//     CAS TGC (no consent page) and ends with a ZM_AUTH_TOKEN cookie;
+//   - whether Partage requires the CSRF token for cookie-authenticated SOAP
+//     (we send it when the web client page exposes one, and fall back to the
+//     REST API, which has no CSRF check);
+//   - the per-message deep link (?view=msg&id=…) surviving the SAML login.
+// Verified by unauthenticated probes: the hosts/redirect chain above, and that
+// partage.univ-rennes.fr/service/soap answers Zimbra JSON faults
+// (service.AUTH_REQUIRED) and /service/home/~/inbox.json is the Zimbra REST API.
+
+class MailAuthError extends Error {}
+
+const MAIL_ACCEPT_HTML = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+
+function buildMailLaunchHref(targetUrl) {
+  return targetUrl ? `/__ent_auth/launch?url=${encodeURIComponent(targetUrl)}` : null
+}
+
+function getMailWebmailHref() {
+  return buildMailLaunchHref(MAIL_WEBMAIL_URL)
+}
+
+function hasZimbraAuthCookie(jar, url) {
+  const hostname = getHostnameFromUrl(url)
+  return Boolean(hostname) && jar.hasCookie(hostname, 'ZM_AUTH_TOKEN')
+}
+
+function extractZimbraCsrfToken(html) {
+  const match = String(html ?? '').match(/csrfToken\s*[=:]\s*["']([^"']{8,})["']/i)
+  return match ? match[1] : null
+}
+
+function assertMailSignInUrl(url) {
+  let parsed = null
+  try {
+    parsed = new URL(url)
+  } catch {
+    throw new Error('Webmail sign-in hit an invalid URL.')
+  }
+
+  const hostname = parsed.hostname.toLowerCase()
+  const allowed = parsed.protocol === 'https:'
+    && MAIL_SIGN_IN_DOMAINS.some((domain) => hostname === domain || hostname.endsWith(`.${domain}`))
+
+  if (!allowed) {
+    throw new Error(`Webmail sign-in left the allowed domains (${hostname}).`)
+  }
+}
+
+// Walks webmail → SP → IdP → CAS → IdP → SP (SAML POST) → webmail with a
+// copy of the session jar, so the CAS TGC can silently authenticate us.
+async function establishZimbraContext(session) {
+  if (!MAIL_WEBMAIL_URL) {
+    throw new Error('Mail provider not configured')
+  }
+
+  if (!getSessionLaunchCapabilities(session).canUseServerLaunch) {
+    throw new Error('CAS session unavailable for mail; please sign in again.')
+  }
+
+  const jar = CookieJar.fromSerialized(session.jar.serialize())
+  let currentUrl = MAIL_WEBMAIL_URL
+  let currentMethod = 'GET'
+  let currentBody
+  let currentHeaders = { Accept: MAIL_ACCEPT_HTML }
+
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    assertMailSignInUrl(currentUrl)
+    const response = await fetchWithJar(currentUrl, jar, {
+      method: currentMethod,
+      body: currentBody,
+      headers: currentHeaders,
+      redirect: 'manual',
+    })
+    const location = response.headers.get('location')
+
+    if (isRedirectStatus(response.status) && location) {
+      await response.arrayBuffer().catch(() => null)
+      const nextUrl = resolveUrl(location, currentUrl)
+
+      // Landed on the webmail with an auth cookie: no need to load the app.
+      if (hasZimbraAuthCookie(jar, nextUrl) && !isCasHost(getHostnameFromUrl(nextUrl))) {
+        return { jar, origin: new URL(nextUrl).origin, csrfToken: null, createdAt: Date.now() }
+      }
+
+      currentUrl = nextUrl
+      if (response.status === 303 || ((response.status === 301 || response.status === 302) && currentMethod === 'POST')) {
+        currentMethod = 'GET'
+        currentBody = undefined
+        currentHeaders = { Accept: MAIL_ACCEPT_HTML }
+      }
+      continue
+    }
+
+    const html = await response.text()
+
+    if (hasZimbraAuthCookie(jar, currentUrl)) {
+      return {
+        jar,
+        origin: new URL(currentUrl).origin,
+        csrfToken: extractZimbraCsrfToken(html),
+        createdAt: Date.now(),
+      }
+    }
+
+    if (isCasHost(getHostnameFromUrl(currentUrl)) && extractHiddenInputValue(html, 'execution')) {
+      throw new Error('CAS session expired; please sign in again to load mail.')
+    }
+
+    const autoSubmitForm = extractAutoSubmitForm(html, currentUrl)
+    if (autoSubmitForm) {
+      const referer = currentUrl
+      currentUrl = autoSubmitForm.action
+      currentMethod = 'POST'
+      currentBody = autoSubmitForm.body
+      currentHeaders = {
+        Accept: MAIL_ACCEPT_HTML,
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Origin: new URL(referer).origin,
+        Referer: referer,
+      }
+      continue
+    }
+
+    const htmlRedirect = extractHtmlRedirect(html, currentUrl)
+    if (htmlRedirect) {
+      currentUrl = htmlRedirect
+      currentMethod = 'GET'
+      currentBody = undefined
+      currentHeaders = { Accept: MAIL_ACCEPT_HTML }
+      continue
+    }
+
+    throw new Error(`Webmail sign-in stopped on an unexpected page (${response.status} at ${getHostnameFromUrl(currentUrl)}).`)
+  }
+
+  throw new Error('Too many redirects while signing in to the webmail.')
+}
+
+async function zimbraSoapRequest(context, requestName, requestBody) {
+  const headers = {
+    Accept: 'application/json',
+    'Content-Type': 'application/json; charset=utf-8',
+    Referer: `${context.origin}/`,
+  }
+  const soapContext = { _jsns: 'urn:zimbra' }
+
+  if (context.csrfToken) {
+    headers['X-Zimbra-Csrf-Token'] = context.csrfToken
+    soapContext.csrfToken = context.csrfToken
+  }
+
+  const response = await fetchWithJar(`${context.origin}/service/soap/${requestName}`, context.jar, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      Header: { context: soapContext },
+      Body: { [requestName]: { _jsns: 'urn:zimbraMail', ...requestBody } },
+    }),
+  })
+  const payload = await response.json().catch(() => null)
+  const fault = payload?.Body?.Fault
+
+  if (fault || !response.ok || !payload?.Body) {
+    const code = fault?.Detail?.Error?.Code ?? `HTTP ${response.status}`
+    const error = /AUTH_(REQUIRED|EXPIRED)/.test(code) || response.status === 401
+      ? new MailAuthError(`Zimbra ${requestName} rejected the session (${code}).`)
+      : new Error(`Zimbra ${requestName} failed (${code}).`)
+    throw error
+  }
+
+  return payload.Body[requestName.replace(/Request$/, 'Response')] ?? {}
+}
+
+async function zimbraRestInbox(context) {
+  const url = `${context.origin}/service/home/~/inbox?fmt=json&limit=${MAIL_MAX_MESSAGES}`
+  const response = await fetchWithJar(url, context.jar, {
+    headers: { Accept: 'application/json', Referer: `${context.origin}/` },
+  })
+
+  if (response.status === 401 || response.status === 403 || isRedirectStatus(response.status)) {
+    throw new MailAuthError(`Zimbra REST rejected the session (HTTP ${response.status}).`)
+  }
+
+  const payload = await response.json().catch(() => null)
+  if (!response.ok || !payload || typeof payload !== 'object') {
+    throw new Error(`Zimbra REST inbox request failed (HTTP ${response.status}).`)
+  }
+
+  return Array.isArray(payload.m) ? payload.m : []
+}
+
+function normalizeZimbraMessage(message, context) {
+  const addresses = Array.isArray(message?.e) ? message.e : []
+  const sender = addresses.find((address) => address?.t === 'f') ?? null
+  const email = typeof sender?.a === 'string' && sender.a ? sender.a : null
+  const timestamp = Number(message?.d)
+  const id = String(message?.id ?? '')
+
+  return {
+    id,
+    from: {
+      name: sender?.p || sender?.d || email || '',
+      email,
+    },
+    subject: typeof message?.su === 'string' ? message.su : '',
+    snippet: typeof message?.fr === 'string' ? message.fr.replace(/\s+/g, ' ').trim().slice(0, 280) : '',
+    receivedAt: Number.isFinite(timestamp) && timestamp > 0 ? new Date(timestamp).toISOString() : null,
+    unread: typeof message?.f === 'string' && message.f.includes('u'),
+    // UNVERIFIED deep link format for the Zimbra Ajax client.
+    href: id ? buildMailLaunchHref(`${context.origin}/?view=msg&id=${encodeURIComponent(id)}`) : null,
+  }
+}
+
+async function queryZimbraInbox(context) {
+  const [searchResult, folderResult] = await Promise.allSettled([
+    zimbraSoapRequest(context, 'SearchRequest', {
+      types: 'message',
+      query: 'in:inbox',
+      sortBy: 'dateDesc',
+      limit: MAIL_MAX_MESSAGES,
+      offset: 0,
+    }),
+    // Folder id 2 is the Inbox in every Zimbra mailbox.
+    zimbraSoapRequest(context, 'GetFolderRequest', { folder: { l: '2' }, depth: 0 }),
+  ])
+
+  let rawMessages
+  if (searchResult.status === 'fulfilled') {
+    rawMessages = Array.isArray(searchResult.value?.m) ? searchResult.value.m : []
+  } else {
+    // SOAP can be refused for CSRF reasons; the REST API has no CSRF check.
+    rawMessages = await zimbraRestInbox(context)
+  }
+
+  let unreadCount = null
+  if (folderResult.status === 'fulfilled') {
+    const folder = Array.isArray(folderResult.value?.folder) ? folderResult.value.folder[0] : folderResult.value?.folder
+    if (folder && typeof folder === 'object') {
+      unreadCount = Number.isFinite(Number(folder.u)) ? Number(folder.u) : 0
+    }
+  }
+
+  const messages = rawMessages
+    .map((message) => normalizeZimbraMessage(message, context))
+    .filter((message) => message.id)
+    .sort((left, right) => String(right.receivedAt ?? '').localeCompare(String(left.receivedAt ?? '')))
+    .slice(0, MAIL_MAX_MESSAGES)
+
+  return { unreadCount, webmailHref: getMailWebmailHref(), messages }
+}
+
+async function fetchZimbraRecentMail(session) {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    let context = attempt === 0 ? runtimeMailContexts.get(session.id) : null
+
+    if (!context) {
+      context = await establishZimbraContext(session)
+      runtimeMailContexts.set(session.id, context)
+    }
+
+    try {
+      return await queryZimbraInbox(context)
+    } catch (error) {
+      runtimeMailContexts.delete(session.id)
+      if (!(error instanceof MailAuthError) || attempt > 0) {
+        throw error
+      }
+    }
+  }
+
+  throw new Error('Unable to load mail.')
+}
+
+const MAIL_PROVIDERS = {
+  zimbra: fetchZimbraRecentMail,
+}
+
+async function fetchRecentMail(session) {
+  const provider = MAIL_PROVIDERS[MAIL_PROVIDER]
+  if (!provider) {
+    throw new Error('Mail provider not configured')
+  }
+
+  return provider(session)
+}
+
+// 6b. Recent mail endpoint
+app.get('/__ent_auth/mail/recent', async (req, res) => {
+  try {
+    res.setHeader('Cache-Control', 'no-store')
+    const session = getSessionFromRequest(req)
+
+    if (!session) {
+      return res.status(200).json({ authenticated: false, mail: null })
+    }
+
+    if (isDemoSession(session)) {
+      setSessionCookie(res, session)
+      return res.status(200).json({
+        authenticated: true,
+        sessionMode: DEMO_SESSION_MODE,
+        mail: buildDemoMailPayload(),
+      })
+    }
+
+    const cachedMail = getCachedMail(session.id)
+    if (cachedMail) {
+      setSessionCookie(res, session)
+      return res.status(200).json({
+        authenticated: true,
+        sessionMode: session.mode ?? null,
+        mail: cachedMail,
+      })
+    }
+
+    const mail = await fetchRecentMail(session)
+    setCachedMail(session.id, mail)
+    setSessionCookie(res, session)
+    return res.status(200).json({
+      authenticated: true,
+      sessionMode: session.mode ?? null,
+      mail,
+    })
+  } catch (error) {
+    // Messages above are built from status codes/hostnames only — never from
+    // cookies, tokens or upstream bodies.
+    return res.status(500).json({
       error: error instanceof Error ? error.message : String(error),
     })
   }

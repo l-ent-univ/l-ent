@@ -1,7 +1,7 @@
 // Université de Rennes — server-side configuration.
 // Never imported by client code: holds origins, auth-flow parameters and the
 // reverse-engineered ADE mobile-app credentials.
-import { id, casOrigin, entOrigin, features, gradesCopy, gradesOrigin, planningServiceUrl, portalEntryPath } from './shared.js'
+import { id, casOrigin, entOrigin, features, gradesCopy, gradesOrigin, mailWebmailUrl, planningServiceUrl, portalEntryPath } from './shared.js'
 
 export default {
   id,
@@ -61,5 +61,18 @@ export default {
   grades: {
     ...gradesCopy,
     origin: gradesOrigin,
+  },
+
+  // "Mails récents" widget (features.mail). The server signs in to the
+  // webmail with the user's CAS session and reads the inbox via the
+  // provider API. Only 'zimbra' is implemented (see server/entAuthApp.js).
+  mail: {
+    provider: 'zimbra',
+    origin: 'https://partage.univ-rennes.fr',
+    webmailUrl: mailWebmailUrl,
+    maxMessages: 5,
+    // Hosts the SAML sign-in chain may visit, besides the webmail and CAS
+    // hosts (RENATER's Partage SP and the university IdP).
+    signInDomains: ['partage.renater.fr', 'univ-rennes1.fr', 'univ-rennes.fr'],
   },
 }

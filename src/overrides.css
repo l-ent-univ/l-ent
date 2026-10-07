@@ -612,6 +612,53 @@
   opacity: 0.45;
 }
 
+/* ── Recent mail widget ── */
+
+.recent-mail-widget {
+  transition-property: opacity, transform, background-color;
+  transition-duration: 320ms, 320ms, 150ms;
+  transition-delay: 340ms, 340ms, 0ms;
+  transition-timing-function: ease;
+}
+
+.recent-mail-widget.cursor-pointer:hover {
+  background-color: var(--color-bg-subtle);
+}
+
+.recent-mail-widget .mail-corner-link {
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+
+.recent-mail-widget:hover .mail-corner-link {
+  opacity: 0.45;
+}
+
+.recent-mail-widget .mail-corner-link:hover,
+.recent-mail-widget .mail-corner-link:focus-visible {
+  opacity: 1;
+}
+
+.mail-unread-dot,
+.mail-unread-pill {
+  background-color: #1a73e8;
+}
+
+.mail-unread-pill {
+  color: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+  .mail-unread-dot,
+  .mail-unread-pill {
+    background-color: #5b9dff;
+  }
+
+  .mail-unread-pill {
+    color: #0f0f0f;
+  }
+}
+
 /* ── Average grade wave dark mode ── */
 
 @media (prefers-color-scheme: dark) {

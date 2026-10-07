@@ -4,6 +4,7 @@ import universityConfig from '@university'
 import AvailableApplications from './AvailableApplications'
 import WidgetLatestGrade from './WidgetLatestGrade'
 import WidgetNextClass from './WidgetNextClass'
+import WidgetRecentMail from './WidgetRecentMail'
 import {
   getCurrentLocationWeather,
   getEditableLocationLabel,
@@ -351,6 +352,10 @@ function WidgetContainer({
   }, [locationQuery])
 
   const isLocationActionDisabled = isWeatherLoading
+  const showGradeWidgets = !hideGradeWidgets
+    && Boolean(universityConfig.features?.grades)
+    && Boolean(getEstablishmentConfig(establishment)?.gradeWidgets)
+  const showMailWidget = Boolean(universityConfig.features?.mail)
 
   return (
     <section className="w-full grid gap-5 pt-4 px-6 pb-6 4xl:pt-5 max-md:px-3 max-md:pt-3 max-md:pb-5 max-md:gap-4" aria-label="Widgets">
@@ -385,11 +390,15 @@ function WidgetContainer({
             />
           </div>
         ) : null}
-        {!hideGradeWidgets && Boolean(universityConfig.features?.grades) && getEstablishmentConfig(establishment)?.gradeWidgets ? (
-          <div id="sidebar-section-grades" className="flex-[1_1_100%] min-w-0 flex items-stretch gap-3 max-md:gap-2 2xl:contents">
+        {showGradeWidgets || showMailWidget ? (
+          // Below 2xl the grade and mail cards share their own row; from 2xl
+          // the wrapper dissolves (display: contents) into the widget row.
+          // empty:hidden covers the mail card rendering nothing (no session).
+          <div id={showGradeWidgets ? 'sidebar-section-grades' : undefined} className="flex-[1_1_100%] min-w-0 flex flex-wrap items-stretch gap-3 max-md:gap-2 empty:hidden 2xl:contents">
             {/* Bloc « Moyenne Générale » masqué pour l'instant — réimporter
                 WidgetAverageGrade et le rendre ici pour le réactiver. */}
-            <WidgetLatestGrade visible={areWidgetsVisible} />
+            {showGradeWidgets ? <WidgetLatestGrade visible={areWidgetsVisible} /> : null}
+            {showMailWidget ? <WidgetRecentMail visible={areWidgetsVisible} /> : null}
           </div>
         ) : null}
       </div>

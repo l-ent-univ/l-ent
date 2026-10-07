@@ -304,6 +304,58 @@ export async function getPlanning() {
   return parseJsonPayload(response)
 }
 
+// Recent inbox messages for the "Mails récents" widget.
+// Server contract (GET /__ent_auth/mail/recent):
+//   200 { authenticated: true, sessionMode, mail: {
+//          unreadCount: number | null,
+//          webmailHref: string | null,
+//          messages: [{ id, from: { name, email }, subject, snippet,
+//                       receivedAt (ISO 8601), unread: boolean, href: string | null }],
+//        } }
+//   200 { authenticated: false, mail: null }   no session
+//   404 { ok: false, disabled: true, feature: 'mail' }   feature off for this university
+//   500 { error }
+// Normalized here to { status: 'ok' | 'disabled' | 'unauthenticated' | 'error', ... }.
+export async function getRecentMail() {
+  if (!universityConfig.features?.mail) {
+    return { status: 'disabled', unreadCount: null, webmailHref: null, messages: [] }
+  }
+
+  try {
+    const response = await fetch(`${ENT_AUTH_PREFIX}/mail/recent`, {
+      credentials: 'same-origin',
+    })
+    const payload = await response.json().catch(() => null)
+
+    if (payload?.disabled) {
+      return { status: 'disabled', unreadCount: null, webmailHref: null, messages: [] }
+    }
+
+    if (!response.ok || !payload) {
+      throw new Error(payload?.error || `Mail request failed (${response.status}).`)
+    }
+
+    if (!payload.authenticated || !payload.mail) {
+      return { status: 'unauthenticated', unreadCount: null, webmailHref: null, messages: [] }
+    }
+
+    return {
+      status: 'ok',
+      unreadCount: Number.isFinite(payload.mail.unreadCount) ? payload.mail.unreadCount : null,
+      webmailHref: payload.mail.webmailHref ?? null,
+      messages: Array.isArray(payload.mail.messages) ? payload.mail.messages : [],
+    }
+  } catch (error) {
+    return {
+      status: 'error',
+      unreadCount: null,
+      webmailHref: null,
+      messages: [],
+      error: error instanceof Error ? error.message : String(error),
+    }
+  }
+}
+
 const GRADES_CACHE_KEY = 'l-ent:grades-cache'
 
 export async function getGrades({ force = false } = {}) {

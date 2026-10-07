@@ -34,6 +34,7 @@ export const features = {
   planning: false,
   moodle: false,
   grades: false,
+  mail: false,
   weather: { enabled: true, defaultCity: 'Paris' },
   demo: true,
 }

@@ -57,6 +57,7 @@ export const features = {
   planning: false,   // Planning GWT (adesoft) — lien "Planning" + résolution du prochain cours
   moodle: false,     // relais de connexion Moodle via Shibboleth WAYF
   grades: false,     // notes ScoDoc — true | false | 'disabled' (pastille visible, données démo)
+  mail: false,       // widget « Mails récents » (lecture de la boîte de réception via le webmail)
   weather: { enabled: true, defaultCity: 'Paris' },
   serviceCategories: false, // filtres par catégorie au-dessus de la grille d'applications (voir services.categories)
   demo: true,        // compte de démonstration (demo@l-ent.app)
@@ -89,6 +90,7 @@ Un feature à `false` : le serveur répond `{ disabled: true }` sur les endpoint
 - `services.titleOverrides` — (optionnel) renomme des applications ENT : `{ 'titre ent en minuscules': 'Titre affiché' }`.
 - `services.isUnavailableApplication(app)` — masque complètement certaines applications.
 - `grades.serviceUrl` (client) — URL publique du service de notes (ScoDoc), ouverte via `/__ent_auth/launch` depuis les widgets et le lien « Mes notes » quand `features.grades === true`.
+- `mailWebmailUrl` (shared) — URL publique du webmail (« Messagerie »), réutilisée par `mail.webmailUrl` côté serveur ; le widget l'ouvre via `/__ent_auth/launch`.
 - `grades` (copy) — `unavailableTitle`, `unavailableDetail`, `disabledPillLabel` quand `features.grades === 'disabled'` ; `unavailableTitle`/`unavailableDetail` servent aussi de message d'erreur serveur quand ScoDoc ne répond pas.
 
 ### Serveur uniquement (`server.js`)
@@ -98,6 +100,17 @@ Un feature à `false` : le serveur répond `{ disabled: true }` sur les endpoint
 - `ade.etab`, `ade.passwordKey`, `ade.passwordIv`, `ade.appHeaders` — identité de l'app mobile « Campus » de votre université. **Ces valeurs se rétro-ingénient par campus** (interception du trafic de l'app mobile officielle) ; voir `API_GUIDE.md` et `src/knownEndpoints.js` pour la méthodologie utilisée à Rennes.
 - `planning.gwtClientId` — identifiant client GWT du Planning adesoft (visible dans les requêtes RPC de `myplanning.jsp`).
 - `grades.origin` — origine du ScoDoc (ex. `https://notes9.iutlan.univ-rennes1.fr`). Le serveur y rejoue la session CAS (`/services/doAuth.php`) puis lit `data.php?q=dataPremièreConnexion` et la photo étudiante. Requis quand `features.grades === true`.
+- `mail` — requis quand `features.mail === true` (endpoint `GET /__ent_auth/mail/recent`, contrat dans `src/entApi.js#getRecentMail`) :
+  ```js
+  mail: {
+    provider: 'zimbra',                         // seul fournisseur implémenté (Zimbra / RENATER Partage)
+    origin: 'https://partage.univ-rennes.fr',   // origine du webmail
+    webmailUrl: mailWebmailUrl,                 // page d'entrée du webmail (défaut : origin)
+    maxMessages: 5,                             // 1–20
+    signInDomains: ['partage.renater.fr'],        // domaines autorisés pendant la connexion SSO (HTTPS uniquement), en plus du webmail et du CAS
+  }
+  ```
+  Le serveur parcourt la chaîne SSO du webmail (Shibboleth → CAS) avec une copie du cookie jar de session, puis lit la boîte via l'API Zimbra (SOAP `SearchRequest`/`GetFolderRequest`, repli REST `/service/home/~/inbox?fmt=json`). Résultat mis en cache 2 min par session. Le compte démo renvoie des mails fictifs. Pour un autre webmail (SOGo, Roundcube, Exchange…), ajoutez une fonction dans `MAIL_PROVIDERS` (`server/entAuthApp.js`) qui renvoie `{ unreadCount, webmailHref, messages }` ; un `provider` inconnu répond `500 { error: 'Mail provider not configured' }`.
 
 ## Checklist de validation
 

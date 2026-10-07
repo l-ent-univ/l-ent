@@ -855,3 +855,66 @@ export function buildDemoGradesPayload() {
     ],
   }
 }
+
+// Demo inbox for the "Mails récents" widget. `minutesAgo` is resolved against
+// the request time so the widget always shows fresh-looking relative dates.
+const DEMO_MAIL_MESSAGES = Object.freeze([
+  {
+    id: 'demo-mail-1',
+    minutesAgo: 12,
+    unread: true,
+    from: { name: 'Thomas Lemoine', email: 'thomas.lemoine@univ-rennes.fr' },
+    subject: 'R5.11 – Rendu du TP React décalé à vendredi',
+    snippet: 'Bonjour à tous, suite aux soucis de serveur de mardi, le rendu du TP 4 (composants et état) est repoussé à vendredi 18h sur Moodle. Pensez à…',
+  },
+  {
+    id: 'demo-mail-2',
+    minutesAgo: 95,
+    unread: true,
+    from: { name: 'Scolarité IUT de Lannion', email: 'scolarite-iut-lannion@univ-rennes.fr' },
+    subject: 'Inscriptions pédagogiques S6 : ouverture le 14 octobre',
+    snippet: 'Madame, Monsieur, les inscriptions pédagogiques du semestre 6 seront ouvertes du 14 au 25 octobre via votre dossier étudiant. Le choix des parcours…',
+  },
+  {
+    id: 'demo-mail-3',
+    minutesAgo: 60 * 5 + 20,
+    unread: false,
+    from: { name: 'Moodle UR', email: 'noreply-moodle@univ-rennes.fr' },
+    subject: 'Nouveau devoir : SAE Prototype interactif – Livrable 2',
+    snippet: 'Mme Le Fur a publié un nouveau devoir dans le cours « SAE Prototype interactif ». Date limite : lundi 23:59. Consultez les consignes détaillées…',
+  },
+  {
+    id: 'demo-mail-4',
+    minutesAgo: 60 * 22,
+    unread: true,
+    from: { name: 'BU Lannion', email: 'bu-lannion@univ-rennes.fr' },
+    subject: 'Rappel : 2 documents à rendre avant le 10/10',
+    snippet: 'Bonjour Camille, nous vous rappelons que les documents suivants arrivent à échéance : « Design emotionnel » (D. Norman), « Refactoring UI »…',
+  },
+  {
+    id: 'demo-mail-5',
+    minutesAgo: 60 * 28,
+    unread: false,
+    from: { name: 'BDE MMI Lannion', email: 'bde.mmi.lannion@gmail.com' },
+    subject: 'Soirée d’intégration jeudi 🎉 dernières places',
+    snippet: 'Salut les MMI ! Il reste une vingtaine de places pour la soirée de jeudi au Quai des Bulles. Inscription et paiement sur le HelloAsso avant mercredi…',
+  },
+])
+
+// Demo sessions open the same demo webmail as the "Messagerie" app tile,
+// never the real university webmail.
+const DEMO_WEBMAIL_HREF = DEMO_APPLICATIONS.find((application) => application.id === 'demo-mail')?.href ?? null
+
+export function buildDemoMailPayload({ now = Date.now(), webmailHref = DEMO_WEBMAIL_HREF } = {}) {
+  const messages = DEMO_MAIL_MESSAGES.map(({ minutesAgo, ...message }) => ({
+    ...cloneDemoValue(message),
+    receivedAt: new Date(now - minutesAgo * 60 * 1000).toISOString(),
+    href: null,
+  }))
+
+  return {
+    unreadCount: 7,
+    webmailHref,
+    messages,
+  }
+}

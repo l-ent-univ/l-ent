@@ -53,6 +53,7 @@ export const features = {
   planning: true,
   moodle: true,
   grades: true,
+  mail: true,
   weather: { enabled: true, defaultCity: 'Rennes' },
   serviceCategories: false,
   demo: true,
@@ -63,6 +64,10 @@ export const planningServiceUrl = 'https://planning.univ-rennes.fr/portal/planni
 
 export const gradesOrigin = 'https://notes9.iutlan.univ-rennes1.fr'
 export const gradesServiceUrl = `${gradesOrigin}/services/doAuth.php?href=${encodeURIComponent(`${gradesOrigin}/`)}`
+
+// Webmail ("Messagerie"): RENATER Partage (Zimbra), behind Shibboleth → CAS.
+// Opened through /__ent_auth/launch by the "Mails récents" widget.
+export const mailWebmailUrl = 'https://partage.univ-rennes.fr/'
 
 // Fallback copy shown when the upstream grade service is unavailable.
 export const gradesCopy = {
