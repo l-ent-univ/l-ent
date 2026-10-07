@@ -1,6 +1,14 @@
-/* ── Widget card box-shadow & dark mode border overrides ── */
+/* ── Widget card base: frosted glass over the hero photo ──
+   Every card paints its background with --color-widget-bg (and hovers with
+   --color-bg-subtle), so redefining both here makes all of them translucent
+   and tinted, with the photo blurred behind. */
 
 .widget-card {
+  --color-widget-bg: rgb(252 251 248 / 0.66);
+  --color-bg-subtle: rgb(252 251 248 / 0.84);
+  border-color: rgb(255 255 255 / 0.65);
+  -webkit-backdrop-filter: blur(20px) saturate(1.5);
+  backdrop-filter: blur(20px) saturate(1.5);
   opacity: 0;
   transform: translateX(-16px);
   transition-property: opacity, transform;
@@ -11,6 +19,8 @@
 
 @media (prefers-color-scheme: dark) {
   .widget-card {
+    --color-widget-bg: rgb(24 24 24 / 0.6);
+    --color-bg-subtle: rgb(38 38 38 / 0.74);
     border-color: rgba(255, 255, 255, 0.08);
   }
 }

@@ -19,7 +19,6 @@ const CARD_CLASSES = 'average-grade-widget widget-card shadow-md flex-[0_1_220px
 function AverageGradeHeader() {
   return (
     <div className="flex items-center gap-[5px] min-w-0">
-      <Icon icon="carbon:chart-average" className="w-[17px] h-[17px] shrink-0" aria-hidden="true" />
       <span className="m-0 min-w-0 leading-[1.06] text-base font-medium overflow-hidden text-ellipsis whitespace-nowrap max-md:text-[15px]">Moyenne Générale</span>
     </div>
   )

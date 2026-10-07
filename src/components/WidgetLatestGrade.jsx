@@ -35,7 +35,6 @@ function getGradeColor(resource) {
 function LatestGradeHeader() {
   return (
     <div className="flex items-center gap-[5px] min-w-0">
-      <Icon icon="carbon:chart-pie" className="w-[17px] h-[17px] shrink-0" aria-hidden="true" />
       <span className="m-0 min-w-0 leading-[1.06] text-base font-medium overflow-hidden text-ellipsis whitespace-nowrap max-md:text-[15px]">Dernière note</span>
     </div>
   )
