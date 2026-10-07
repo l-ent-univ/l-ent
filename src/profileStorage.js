@@ -1,6 +1,7 @@
 export const ESTABLISHMENT_KEY = 'l-ent:establishment'
 export const STUDENT_TP_KEY = 'l-ent:student-tp'
 export const ADE_LOOKAHEAD_KEY = 'l-ent:ade-lookahead-days'
+export const GREETING_HIDDEN_KEY = 'l-ent:greeting-hidden'
 const STUDENT_TP_SELECTION_VERSION = 4
 
 // Discrete steps offered by the "next class" lookahead slider (in days).
@@ -163,6 +164,21 @@ export function persistAdeLookaheadDays(days, userId = null) {
     localStorage.setItem(ADE_LOOKAHEAD_KEY, JSON.stringify({
       user: userId || null,
       value: normalizeAdeLookaheadDays(days),
+    }))
+  } catch {
+    // Storage unavailable
+  }
+}
+
+export function getStoredGreetingHidden(userId = null) {
+  return readScopedStorageValue(GREETING_HIDDEN_KEY, userId) === true
+}
+
+export function persistGreetingHidden(hidden, userId = null) {
+  try {
+    localStorage.setItem(GREETING_HIDDEN_KEY, JSON.stringify({
+      user: userId || null,
+      value: Boolean(hidden),
     }))
   } catch {
     // Storage unavailable

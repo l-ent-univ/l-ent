@@ -22,9 +22,11 @@ import {
   clearStoredTpSelection,
   getStoredAdeLookaheadDays,
   getStoredEstablishment,
+  getStoredGreetingHidden,
   getStoredTpSelection,
   persistAdeLookaheadDays,
   persistEstablishment,
+  persistGreetingHidden,
   persistTpSelection,
 } from './profileStorage'
 import WidgetContainer from './components/WidgetContainer'
@@ -954,6 +956,7 @@ function App() {
   const [establishment, setEstablishment] = useState(() => getStoredEstablishment())
   const [selectedTp, setSelectedTp] = useState(() => getStoredTpSelection())
   const [nextClassLookaheadDays, setNextClassLookaheadDays] = useState(() => getStoredAdeLookaheadDays())
+  const [isGreetingHidden, setIsGreetingHidden] = useState(() => getStoredGreetingHidden())
   // Lookahead actually fed to the next-class widget. Re-synced only while the
   // account modal is closed, so moving the slider doesn't refetch the widget
   // on every step.
@@ -1254,6 +1257,7 @@ function App() {
     setEstablishment(getStoredEstablishment(sessionState.user))
     setSelectedTp(getStoredTpSelection(sessionState.user))
     setNextClassLookaheadDays(getStoredAdeLookaheadDays(sessionState.user))
+    setIsGreetingHidden(getStoredGreetingHidden(sessionState.user))
     setHasHydratedProfile(false)
     setTpOnboardingState(createEmptyTpOnboardingState())
 
@@ -1730,6 +1734,11 @@ function App() {
   const handleNextClassLookaheadChange = useCallback((days) => {
     persistAdeLookaheadDays(days, sessionState.user)
     setNextClassLookaheadDays(days)
+  }, [sessionState.user])
+
+  const handleGreetingHiddenChange = useCallback((hidden) => {
+    persistGreetingHidden(hidden, sessionState.user)
+    setIsGreetingHidden(hidden)
   }, [sessionState.user])
 
   useEffect(() => {
@@ -2361,6 +2370,8 @@ function App() {
                 debugNextClass={debugNextClass}
                 canUseServerLaunch={sessionState.canUseServerLaunch}
                 favoritesPortalTarget={isSidebarViewport ? favoritesSlotEl : null}
+                hideGreeting={isGreetingHidden}
+                onDismissGreeting={() => handleGreetingHiddenChange(true)}
               />
             </div>
             <div className="4xl:mt-auto">
@@ -2392,6 +2403,8 @@ function App() {
         lookaheadDays={nextClassLookaheadDays}
         lookaheadOptions={ADE_LOOKAHEAD_DAY_OPTIONS}
         onLookaheadChange={handleNextClassLookaheadChange}
+        showGreeting={!isGreetingHidden}
+        onShowGreetingChange={(show) => handleGreetingHiddenChange(!show)}
       />
       <PwaInstallPrompt forceShow={forceInstallPrompt || forceIosPrompt} forceIos={forceIosPrompt} />
       <PwaUpdateManager
