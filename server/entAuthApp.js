@@ -32,6 +32,7 @@ import {
   buildDemoLayoutDocData,
   buildDemoMailPayload,
   buildDemoMarketplaceEntries,
+  buildDemoMoodleDeadlinesPayload,
   buildDemoPlanningPayload,
   buildDemoPortletFragment,
   buildDemoPortletMetadata,
@@ -65,12 +66,24 @@ const MAIL_WEBMAIL_URL = universityConfig.mail?.webmailUrl ?? MAIL_ORIGIN
 const MAIL_MAX_MESSAGES = Math.min(Math.max(Number(universityConfig.mail?.maxMessages) || 5, 1), 20)
 // Domains the webmail sign-in chain may visit (webmail, SAML SP, IdP, CAS).
 // Anything else — or any non-HTTPS URL — aborts the chain.
-const MAIL_SIGN_IN_DOMAINS = [
-  ...(universityConfig.mail?.signInDomains ?? []),
-  ...[MAIL_ORIGIN, MAIL_WEBMAIL_URL, universityConfig.origins?.cas]
-    .map((url) => { try { return new URL(url).hostname } catch { return null } })
-    .filter(Boolean),
-].map((domain) => String(domain).toLowerCase())
+function buildSignInDomains(extraDomains, urls) {
+  return [
+    ...(extraDomains ?? []),
+    ...urls
+      .map((url) => { try { return new URL(url).hostname } catch { return null } })
+      .filter(Boolean),
+  ].map((domain) => String(domain).toLowerCase())
+}
+const MAIL_SIGN_IN_DOMAINS = buildSignInDomains(
+  universityConfig.mail?.signInDomains,
+  [MAIL_ORIGIN, MAIL_WEBMAIL_URL, universityConfig.origins?.cas],
+)
+// Same rule for the Moodle sign-in chain (Moodle, WAYF, SAML IdP, CAS) used by
+// the "Échéances Moodle" widget.
+const MOODLE_SIGN_IN_DOMAINS = buildSignInDomains(
+  universityConfig.moodle?.signInDomains,
+  [universityConfig.origins?.moodle, universityConfig.origins?.cas],
+)
 
 const ENT_HOST = new URL(ENT_ORIGIN).hostname
 const CAS_HOST = new URL(CAS_ORIGIN).hostname
@@ -82,6 +95,29 @@ const PORTAL_ENTRY_URL = `${ENT_ORIGIN}${universityConfig.auth.portalEntryPath}`
 const MOODLE_SHIBBOLETH_LOGIN_URL = MOODLE_ORIGIN
   ? `${MOODLE_ORIGIN}${universityConfig.moodle?.shibbolethLoginPath ?? '/auth/shibboleth/index.php'}`
   : null
+
+// Moodle's Shibboleth entry point supports WAYFless deep links: ?target=<local
+// URL> becomes $SESSION->wantsurl, the SP keeps it as RelayState through the
+// SSO chain, and Moodle redirects there after login — so a launch to an
+// activity page lands on that page instead of the dashboard.
+function buildMoodleShibbolethLoginUrl(targetUrl = null) {
+  if (!MOODLE_SHIBBOLETH_LOGIN_URL || !targetUrl) {
+    return MOODLE_SHIBBOLETH_LOGIN_URL
+  }
+
+  try {
+    const target = new URL(targetUrl)
+    if (target.origin !== MOODLE_ORIGIN || target.pathname === '/' || target.pathname.startsWith('/auth/')) {
+      return MOODLE_SHIBBOLETH_LOGIN_URL
+    }
+
+    const loginUrl = new URL(MOODLE_SHIBBOLETH_LOGIN_URL)
+    loginUrl.searchParams.set('target', target.toString())
+    return loginUrl.toString()
+  } catch {
+    return MOODLE_SHIBBOLETH_LOGIN_URL
+  }
+}
 const WAYF_ENTITY_ID = universityConfig.moodle?.wayfEntityId ?? null
 const DEFAULT_REFERER = PORTAL_ENTRY_URL
 
@@ -92,6 +128,10 @@ const LOCAL_SESSION_COOKIE = 'ent_front_session'
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000
 const GRADES_CACHE_TTL_MS = 10 * 60 * 1000
 const MAIL_CACHE_TTL_MS = 2 * 60 * 1000
+const MOODLE_DEADLINES_CACHE_TTL_MS = 5 * 60 * 1000
+// Signed-in Moodle contexts are reused for this long (and dropped earlier if
+// Moodle rejects them), so a widget refresh doesn't replay the SAML chain.
+const MOODLE_CONTEXT_TTL_MS = 60 * 60 * 1000
 const LOGIN_RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000
 const LOGIN_RATE_LIMIT_BLOCK_MS = 15 * 60 * 1000
 const LOGIN_RATE_LIMIT_MAX_ATTEMPTS_PER_IP = 10
@@ -108,6 +148,11 @@ const runtimeMailCache = new Map()
 // Kept runtime-only (never persisted in the session cookie) so the IdP/SP/
 // webmail cookies don't bloat the 4 KB session cookie.
 const runtimeMailContexts = new Map()
+// sessionId → { cachedAt, data }: short-lived Moodle deadlines snapshot.
+const runtimeMoodleDeadlinesCache = new Map()
+// sessionId → { createdAt, jar, sesskey }: signed-in Moodle context, runtime-only
+// for the same reason as runtimeMailContexts.
+const runtimeMoodleContexts = new Map()
 const loginRateLimitByIp = new Map()
 const loginRateLimitByUsername = new Map()
 
@@ -454,6 +499,8 @@ function pruneRuntimeSessions() {
       runtimeGradesCache.delete(sessionId)
       runtimeMailCache.delete(sessionId)
       runtimeMailContexts.delete(sessionId)
+      runtimeMoodleDeadlinesCache.delete(sessionId)
+      runtimeMoodleContexts.delete(sessionId)
     }
   }
 }
@@ -526,6 +573,37 @@ function clearMailCaches(sessionId) {
 
   runtimeMailCache.delete(sessionId)
   runtimeMailContexts.delete(sessionId)
+}
+
+function getCachedMoodleDeadlines(sessionId) {
+  if (!sessionId) {
+    return null
+  }
+
+  const entry = runtimeMoodleDeadlinesCache.get(sessionId)
+  if (!entry || Date.now() - entry.cachedAt > MOODLE_DEADLINES_CACHE_TTL_MS) {
+    runtimeMoodleDeadlinesCache.delete(sessionId)
+    return null
+  }
+
+  return entry.data
+}
+
+function setCachedMoodleDeadlines(sessionId, deadlines) {
+  if (!sessionId) {
+    return
+  }
+
+  runtimeMoodleDeadlinesCache.set(sessionId, { cachedAt: Date.now(), data: deadlines })
+}
+
+function clearMoodleCaches(sessionId) {
+  if (!sessionId) {
+    return
+  }
+
+  runtimeMoodleDeadlinesCache.delete(sessionId)
+  runtimeMoodleContexts.delete(sessionId)
 }
 
 function setSessionCookie(res, session) {
@@ -1025,11 +1103,11 @@ function parseFormFields(formBody) {
   return Object.fromEntries(new URLSearchParams(formBody))
 }
 
-async function prepareMoodleLaunchRelay(session) {
+async function prepareMoodleLaunchRelay(session, targetUrl = null) {
   const acceptHeader = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
   const launchCapabilities = getSessionLaunchCapabilities(session)
   const chain = []
-  let currentUrl = MOODLE_SHIBBOLETH_LOGIN_URL
+  let currentUrl = buildMoodleShibbolethLoginUrl(targetUrl)
   let currentMethod = 'GET'
   let currentBody = undefined
   let currentHeaders = { Accept: acceptHeader }
@@ -1499,6 +1577,7 @@ function clearSensitiveSessionCaches(session) {
 
   clearCachedGrades(sessionId)
   clearMailCaches(sessionId)
+  clearMoodleCaches(sessionId)
   clearAdeCaches(cacheScope)
   clearPlanningCaches(cacheScope)
   clearPortalCaches(cacheScope)
@@ -1834,6 +1913,7 @@ const FEATURE_GATED_PREFIXES = [
   ['/__ent_auth/planning', 'planning'],
   ['/__ent_auth/grades', 'grades'],
   ['/__ent_auth/mail', 'mail'],
+  ['/__ent_auth/moodle', 'moodleDeadlines'],
 ]
 
 app.use((req, res, next) => {
@@ -2183,7 +2263,7 @@ app.get('/__ent_auth/launch', async (req, res) => {
 
   if (isMoodleLaunchTarget(targetUrl)) {
     try {
-      const relay = await prepareMoodleLaunchRelay(session)
+      const relay = await prepareMoodleLaunchRelay(session, targetUrl)
 
       if (debug) {
         return res.json({
@@ -2430,21 +2510,27 @@ function getHttpsOrigin(url) {
   return parsed.origin
 }
 
-function assertMailSignInUrl(url) {
+// Server-side SSO chains only follow HTTPS URLs on an allowlist of domains,
+// so a hostile redirect can't make us send the session cookies elsewhere.
+function assertSignInUrl(url, allowedDomains, label) {
   let parsed = null
   try {
     parsed = new URL(url)
   } catch {
-    throw new Error('Webmail sign-in hit an invalid URL.')
+    throw new Error(`${label} sign-in hit an invalid URL.`)
   }
 
   const hostname = parsed.hostname.toLowerCase()
   const allowed = parsed.protocol === 'https:'
-    && MAIL_SIGN_IN_DOMAINS.some((domain) => hostname === domain || hostname.endsWith(`.${domain}`))
+    && allowedDomains.some((domain) => hostname === domain || hostname.endsWith(`.${domain}`))
 
   if (!allowed) {
-    throw new Error(`Webmail sign-in left the allowed domains (${hostname}).`)
+    throw new Error(`${label} sign-in left the allowed domains (${hostname}).`)
   }
+}
+
+function assertMailSignInUrl(url) {
+  assertSignInUrl(url, MAIL_SIGN_IN_DOMAINS, 'Webmail')
 }
 
 // Walks webmail → SP → IdP → CAS → IdP → SP (SAML POST) → webmail with a
@@ -2772,6 +2858,399 @@ app.get('/__ent_auth/mail/recent', async (req, res) => {
   } catch (error) {
     // Messages above are built from status codes/hostnames only — never from
     // cookies, tokens or upstream bodies.
+    return res.status(500).json({
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
+})
+
+// ---------------------------------------------------------------------------
+// Moodle deadlines ("Échéances Moodle" widget)
+// ---------------------------------------------------------------------------
+// Signs in to Moodle server-side with a copy of the session jar, reusing the
+// launch relay's chain (Shibboleth → WAYF → IdP → CAS → SAML POST back to the
+// SP) but posting the SAML response ourselves, so we end with a MoodleSession.
+// The dashboard page gives the sesskey (M.cfg.sesskey) needed by the AJAX web
+// service; deadlines come from core_calendar_get_action_events_by_timesort (the
+// "Chronologie" block), with core_calendar_get_calendar_upcoming_view as a
+// fallback when that function is unavailable. Normalized to the contract in
+// src/entApi.js#getMoodleDeadlines.
+//
+// `submitted` is derived from the event's action (see normalizeMoodleEvent):
+// best effort, true/false for assignments and quizzes, null otherwise.
+
+class MoodleAuthError extends Error {}
+
+const MOODLE_ACCEPT_HTML = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+const MOODLE_DEADLINES_MAX_ITEMS = 6
+const MOODLE_DEADLINES_MAX_OVERDUE = 3
+const MOODLE_DEADLINES_LOOKAHEAD_DAYS = 30
+const MOODLE_DEADLINES_OVERDUE_DAYS = 7
+const MOODLE_AUTH_ERROR_CODES = new Set([
+  'servicerequireslogin',
+  'requireloginerror',
+  'invalidsesskey',
+  'sessionerroruser',
+  'sessiontimedout',
+])
+
+function assertMoodleSignInUrl(url) {
+  assertSignInUrl(url, MOODLE_SIGN_IN_DOMAINS, 'Moodle')
+}
+
+function buildMoodleLaunchHref(targetUrl) {
+  return targetUrl && isMoodleLaunchTarget(targetUrl)
+    ? `/__ent_auth/launch?url=${encodeURIComponent(targetUrl)}`
+    : null
+}
+
+function extractMoodleSesskey(html) {
+  const match = String(html ?? '').match(/"sesskey"\s*:\s*"([A-Za-z0-9]{6,})"/)
+  return match ? match[1] : null
+}
+
+// Logged-in Moodle pages have a sesskey and no "notloggedin" body class (guest
+// pages, e.g. the login page, also carry a sesskey).
+function readSignedInMoodlePage(html, url) {
+  if (getHostnameFromUrl(url) !== MOODLE_HOST) {
+    return null
+  }
+
+  const bodyTag = String(html ?? '').match(/<body\b[^>]*>/i)?.[0] ?? ''
+  if (!bodyTag || /\bnotloggedin\b/.test(bodyTag)) {
+    return null
+  }
+
+  return extractMoodleSesskey(html)
+}
+
+async function establishMoodleContext(session) {
+  if (!MOODLE_SHIBBOLETH_LOGIN_URL) {
+    throw new Error('Moodle is not configured for this university.')
+  }
+
+  const hasCredentials = Boolean(session?.credentials?.username && session?.credentials?.password)
+  if (!getSessionLaunchCapabilities(session).canUseServerLaunch && !hasCredentials) {
+    throw new MoodleAuthError('CAS session unavailable for Moodle; please sign in again.')
+  }
+
+  const jar = CookieJar.fromSerialized(session.jar.serialize())
+  let currentUrl = MOODLE_SHIBBOLETH_LOGIN_URL
+  let currentMethod = 'GET'
+  let currentBody
+  let currentHeaders = { Accept: MOODLE_ACCEPT_HTML }
+  let casFormSubmitted = false
+
+  const goTo = (url, method = 'GET', body = undefined, headers = { Accept: MOODLE_ACCEPT_HTML }) => {
+    currentUrl = url
+    currentMethod = method
+    currentBody = body
+    currentHeaders = headers
+  }
+
+  for (let attempt = 0; attempt < 25; attempt += 1) {
+    assertMoodleSignInUrl(currentUrl)
+    const response = await fetchWithJar(currentUrl, jar, {
+      method: currentMethod,
+      body: currentBody,
+      headers: currentHeaders,
+      redirect: 'manual',
+    })
+    const location = response.headers.get('location')
+
+    if (isRedirectStatus(response.status) && location) {
+      await response.arrayBuffer().catch(() => null)
+      const nextUrl = resolveUrl(location, currentUrl)
+      // 307/308 replay a POST as-is; everything else continues as a GET.
+      if (currentMethod === 'POST' && (response.status === 307 || response.status === 308)) {
+        goTo(nextUrl, 'POST', currentBody, currentHeaders)
+      } else {
+        goTo(nextUrl)
+      }
+      continue
+    }
+
+    const html = await response.text()
+
+    // Check this first: dashboard JS can look like an HTML redirect.
+    const sesskey = response.ok ? readSignedInMoodlePage(html, currentUrl) : null
+    if (sesskey) {
+      return { jar, sesskey, createdAt: Date.now() }
+    }
+
+    if (isCasHost(getHostnameFromUrl(currentUrl)) && extractHiddenInputValue(html, 'execution')) {
+      // TGC gone (e.g. cookie-restored session): fall back to the login-time
+      // credentials kept on runtime sessions, once.
+      const casLoginRequest = !casFormSubmitted && hasCredentials
+        ? buildCasLoginRequest(html, currentUrl, session.credentials, MOODLE_ACCEPT_HTML)
+        : null
+      if (!casLoginRequest || !isCasHost(getHostnameFromUrl(casLoginRequest.actionUrl))) {
+        throw new MoodleAuthError('CAS session expired; please sign in again to load Moodle.')
+      }
+      casFormSubmitted = true
+      goTo(casLoginRequest.actionUrl, 'POST', casLoginRequest.body, casLoginRequest.headers)
+      continue
+    }
+
+    if (/name=["']user_idp["']/i.test(html)) {
+      if (!WAYF_ENTITY_ID) {
+        throw new Error('Moodle WAYF entity id is not configured.')
+      }
+      const wayfRequest = buildMoodleWayfRequest({ html, url: currentUrl, acceptHeader: MOODLE_ACCEPT_HTML })
+      goTo(wayfRequest.actionUrl, 'POST', wayfRequest.body, wayfRequest.headers)
+      continue
+    }
+
+    const autoSubmitForm = extractAutoSubmitForm(html, currentUrl)
+    if (autoSubmitForm) {
+      goTo(autoSubmitForm.action, 'POST', autoSubmitForm.body, {
+        Accept: MOODLE_ACCEPT_HTML,
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Origin: new URL(currentUrl).origin,
+        Referer: currentUrl,
+      })
+      continue
+    }
+
+    const htmlRedirect = extractHtmlRedirect(html, currentUrl)
+    if (htmlRedirect) {
+      goTo(htmlRedirect)
+      continue
+    }
+
+    throw new Error(`Moodle sign-in stopped on an unexpected page (${response.status} at ${getHostnameFromUrl(currentUrl)}).`)
+  }
+
+  throw new Error('Too many redirects while signing in to Moodle.')
+}
+
+async function moodleAjaxCall(context, methodname, args) {
+  const url = `${MOODLE_ORIGIN}/lib/ajax/service.php?sesskey=${encodeURIComponent(context.sesskey)}&info=${encodeURIComponent(methodname)}`
+  const response = await fetchWithJar(url, context.jar, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json, text/javascript, */*; q=0.01',
+      'Content-Type': 'application/json',
+      'X-Requested-With': 'XMLHttpRequest',
+      Origin: MOODLE_ORIGIN,
+      Referer: `${MOODLE_ORIGIN}/my/`,
+    },
+    body: JSON.stringify([{ index: 0, methodname, args }]),
+  })
+
+  if (response.status === 401 || response.status === 403 || isRedirectStatus(response.status)) {
+    await response.arrayBuffer().catch(() => null)
+    throw new MoodleAuthError(`Moodle ${methodname} rejected the session (HTTP ${response.status}).`)
+  }
+
+  const payload = await response.json().catch(() => null)
+  // service.php answers an array of per-call results, or a single error object
+  // when the whole request is refused (e.g. invalid sesskey).
+  const result = Array.isArray(payload) ? payload[0] : payload
+  const errorcode = result?.exception?.errorcode ?? result?.errorcode ?? null
+
+  if (!response.ok || !result || typeof result !== 'object' || result.error) {
+    const code = errorcode ? String(errorcode) : `HTTP ${response.status}`
+    throw MOODLE_AUTH_ERROR_CODES.has(code)
+      ? new MoodleAuthError(`Moodle ${methodname} rejected the session (${code}).`)
+      : new Error(`Moodle ${methodname} failed (${code}).`)
+  }
+
+  return result.data
+}
+
+function getMoodleDeadlineType(modulename) {
+  return ['assign', 'quiz', 'forum'].includes(modulename) ? modulename : 'other'
+}
+
+function normalizeMoodleEvent(event, nowMs) {
+  const timestamp = Number(event?.timesort ?? event?.timestart)
+  if (!event || !Number.isFinite(timestamp) || timestamp <= 0) {
+    return null
+  }
+
+  const type = getMoodleDeadlineType(String(event.modulename ?? ''))
+  const dueAtMs = timestamp * 1000
+  const action = event.action && typeof event.action === 'object' ? event.action : null
+  const title = [event.activityname, event.name]
+    .find((value) => typeof value === 'string' && value.trim())
+
+  return {
+    id: String(event.id ?? `${event.modulename ?? 'event'}-${event.instance ?? ''}-${timestamp}`),
+    title: title ? decodeHtmlEntities(title.trim()) : '',
+    courseName: decodeHtmlEntities(String(event.course?.fullname || event.course?.shortname || '').trim()),
+    dueAt: new Date(dueAtMs).toISOString(),
+    type,
+    overdue: dueAtMs < nowMs,
+    // Moodle drops the action of an assignment/quiz once it's submitted.
+    submitted: type === 'assign' || type === 'quiz' ? !action : null,
+    href: buildMoodleLaunchHref(typeof event.url === 'string' ? event.url : null),
+  }
+}
+
+function selectMoodleDeadlines(events, nowMs) {
+  const fromMs = nowMs - MOODLE_DEADLINES_OVERDUE_DAYS * 24 * 60 * 60 * 1000
+  const toMs = nowMs + MOODLE_DEADLINES_LOOKAHEAD_DAYS * 24 * 60 * 60 * 1000
+  const seen = new Set()
+  const items = events
+    .map((event) => normalizeMoodleEvent(event, nowMs))
+    .filter((item) => {
+      if (!item || seen.has(item.id)) return false
+      seen.add(item.id)
+      const dueAtMs = Date.parse(item.dueAt)
+      return dueAtMs >= fromMs && dueAtMs <= toMs
+    })
+    .sort((left, right) => left.dueAt.localeCompare(right.dueAt))
+
+  // Keep the most recent overdue items only, so stale ones don't crowd out
+  // what's coming up.
+  const overdue = items.filter((item) => item.overdue).slice(-MOODLE_DEADLINES_MAX_OVERDUE)
+  const upcoming = items.filter((item) => !item.overdue)
+  return [...overdue, ...upcoming].slice(0, MOODLE_DEADLINES_MAX_ITEMS)
+}
+
+async function requestMoodleEvents(context, methodname, args) {
+  const data = await moodleAjaxCall(context, methodname, args)
+  if (!Array.isArray(data?.events)) {
+    throw new Error(`Moodle ${methodname} returned no event list.`)
+  }
+  return data.events
+}
+
+// Two web services, one request each:
+// - core_calendar_get_action_events_by_timesort (the "Chronologie" block): what
+//   is still to do, overdue items included; completed activities are left out.
+// - core_calendar_get_calendar_upcoming_view (the "Événements à venir" block):
+//   every upcoming event, with `action` unset once the student has submitted.
+//   It brings back submitted assignments/quizzes, and is the fallback list
+//   when the first service is unavailable (then without overdue items).
+async function queryMoodleDeadlines(context) {
+  const nowMs = Date.now()
+  const nowSeconds = Math.floor(nowMs / 1000)
+  const [actionResult, upcomingResult] = await Promise.allSettled([
+    requestMoodleEvents(context, 'core_calendar_get_action_events_by_timesort', {
+      limitnum: 30,
+      timesortfrom: nowSeconds - MOODLE_DEADLINES_OVERDUE_DAYS * 24 * 60 * 60,
+      timesortto: nowSeconds + MOODLE_DEADLINES_LOOKAHEAD_DAYS * 24 * 60 * 60,
+      limittononsuspendedevents: true,
+    }),
+    requestMoodleEvents(context, 'core_calendar_get_calendar_upcoming_view', {
+      courseid: 1,
+      categoryid: 0,
+    }),
+  ])
+
+  for (const result of [actionResult, upcomingResult]) {
+    if (result.status === 'rejected' && result.reason instanceof MoodleAuthError) {
+      throw result.reason
+    }
+  }
+
+  const upcomingEvents = upcomingResult.status === 'fulfilled'
+    ? upcomingResult.value.filter((event) => event?.modulename)
+    : []
+  let events
+
+  if (actionResult.status === 'fulfilled') {
+    const actionEventIds = new Set(actionResult.value.map((event) => String(event?.id)))
+    const submittedEvents = upcomingEvents.filter((event) => (
+      !actionEventIds.has(String(event.id))
+      && !event.action
+      && ['assign', 'quiz'].includes(event.modulename)
+    ))
+    events = [...actionResult.value, ...submittedEvents]
+  } else if (upcomingResult.status === 'fulfilled') {
+    events = upcomingEvents
+  } else {
+    throw actionResult.reason
+  }
+
+  return {
+    moodleHref: buildMoodleLaunchHref(`${MOODLE_ORIGIN}/my/`),
+    items: selectMoodleDeadlines(events, nowMs),
+  }
+}
+
+async function fetchMoodleDeadlines(session) {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    let context = attempt === 0 ? runtimeMoodleContexts.get(session.id) : null
+    if (context && Date.now() - context.createdAt > MOODLE_CONTEXT_TTL_MS) {
+      context = null
+    }
+
+    if (!context) {
+      context = await establishMoodleContext(session)
+      runtimeMoodleContexts.set(session.id, context)
+    }
+
+    try {
+      return await queryMoodleDeadlines(context)
+    } catch (error) {
+      runtimeMoodleContexts.delete(session.id)
+      if (!(error instanceof MoodleAuthError) || attempt > 0) {
+        throw error
+      }
+    }
+  }
+
+  throw new Error('Unable to load Moodle deadlines.')
+}
+
+// Concurrent requests for the same session share one sign-in + fetch, so two
+// SAML chains never race on the same Moodle context.
+const moodleDeadlinesInflight = new Map()
+
+function fetchMoodleDeadlinesOnce(session) {
+  const inflight = moodleDeadlinesInflight.get(session.id)
+  if (inflight) {
+    return inflight
+  }
+
+  const promise = fetchMoodleDeadlines(session).finally(() => moodleDeadlinesInflight.delete(session.id))
+  moodleDeadlinesInflight.set(session.id, promise)
+  return promise
+}
+
+// 6d. Moodle deadlines endpoint
+app.get('/__ent_auth/moodle/deadlines', async (req, res) => {
+  try {
+    res.setHeader('Cache-Control', 'no-store')
+    const session = getSessionFromRequest(req)
+
+    if (!session) {
+      return res.status(200).json({ authenticated: false, deadlines: null })
+    }
+
+    if (isDemoSession(session)) {
+      setSessionCookie(res, session)
+      return res.status(200).json({
+        authenticated: true,
+        sessionMode: DEMO_SESSION_MODE,
+        deadlines: buildDemoMoodleDeadlinesPayload(),
+      })
+    }
+
+    const cachedDeadlines = getCachedMoodleDeadlines(session.id)
+    if (cachedDeadlines) {
+      setSessionCookie(res, session)
+      return res.status(200).json({
+        authenticated: true,
+        sessionMode: session.mode ?? null,
+        deadlines: cachedDeadlines,
+      })
+    }
+
+    const deadlines = await fetchMoodleDeadlinesOnce(session)
+    setCachedMoodleDeadlines(session.id, deadlines)
+    setSessionCookie(res, session)
+    return res.status(200).json({
+      authenticated: true,
+      sessionMode: session.mode ?? null,
+      deadlines,
+    })
+  } catch (error) {
+    // Messages are built from status codes, error codes and hostnames only —
+    // never from cookies, the sesskey or upstream bodies.
     return res.status(500).json({
       error: error instanceof Error ? error.message : String(error),
     })

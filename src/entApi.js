@@ -358,6 +358,58 @@ export async function getRecentMail() {
 
 const GRADES_CACHE_KEY = 'l-ent:grades-cache'
 
+// Upcoming Moodle deadlines for the "Échéances Moodle" widget.
+// Server contract (GET /__ent_auth/moodle/deadlines):
+//   200 { authenticated: true, sessionMode, deadlines: {
+//          moodleHref: string | null,          // opens Moodle (dashboard/calendar)
+//          items: [{ id, title, courseName, dueAt (ISO 8601),
+//                    type: 'assign' | 'quiz' | 'forum' | 'other',
+//                    overdue: boolean, submitted: boolean | null,
+//                    href: string | null }],    // soonest first, ~6 max
+//        } }
+//   200 { authenticated: false, deadlines: null }   no session
+//   404 { ok: false, disabled: true, feature: 'moodleDeadlines' }
+//   500 { error }
+// Normalized here to { status: 'ok' | 'disabled' | 'unauthenticated' | 'error', ... }.
+export async function getMoodleDeadlines() {
+  const empty = { moodleHref: null, items: [] }
+
+  if (!universityConfig.features?.moodleDeadlines) {
+    return { status: 'disabled', ...empty }
+  }
+
+  try {
+    const response = await fetch(`${ENT_AUTH_PREFIX}/moodle/deadlines`, {
+      credentials: 'same-origin',
+    })
+    const payload = await response.json().catch(() => null)
+
+    if (payload?.disabled) {
+      return { status: 'disabled', ...empty }
+    }
+
+    if (!response.ok || !payload) {
+      throw new Error(payload?.error || `Moodle request failed (${response.status}).`)
+    }
+
+    if (!payload.authenticated || !payload.deadlines) {
+      return { status: 'unauthenticated', ...empty }
+    }
+
+    return {
+      status: 'ok',
+      moodleHref: payload.deadlines.moodleHref ?? null,
+      items: Array.isArray(payload.deadlines.items) ? payload.deadlines.items : [],
+    }
+  } catch (error) {
+    return {
+      status: 'error',
+      ...empty,
+      error: error instanceof Error ? error.message : String(error),
+    }
+  }
+}
+
 // App bootstrap, the latest-grade widget and the sidebar pockets all ask for
 // grades on load: share one in-flight request instead of hitting ScoDoc N times.
 let gradesInflight = null

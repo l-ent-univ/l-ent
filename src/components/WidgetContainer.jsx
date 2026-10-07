@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Icon } from '@iconify/react'
 import universityConfig from '@university'
 import AvailableApplications from './AvailableApplications'
+import WidgetDeadlines from './WidgetDeadlines'
 import WidgetLatestGrade from './WidgetLatestGrade'
 import WidgetNextClass from './WidgetNextClass'
 import WidgetRecentMail from './WidgetRecentMail'
@@ -356,10 +357,12 @@ function WidgetContainer({
     && Boolean(universityConfig.features?.grades)
     && Boolean(getEstablishmentConfig(establishment)?.gradeWidgets)
   const showMailWidget = Boolean(universityConfig.features?.mail)
+  const showDeadlinesWidget = Boolean(universityConfig.features?.moodleDeadlines)
+  const pairListWidgets = showMailWidget && showDeadlinesWidget
 
   return (
     <section className="w-full grid gap-5 pt-4 px-6 pb-6 4xl:pt-5 max-md:px-3 max-md:pt-3 max-md:pb-5 max-md:gap-4" aria-label="Widgets">
-      <div className="flex flex-wrap gap-3 items-stretch max-md:gap-2 overflow-visible p-2 -m-2">
+      <div className="widget-row flex flex-wrap gap-3 items-stretch max-md:gap-2 overflow-visible p-2 -m-2">
         {!hideGreeting ? (
         <article className={`widget-card group relative shadow-md flex-[0_1_280px] min-h-[140px] p-4 border border-white rounded-[22px] overflow-hidden bg-widget-bg text-base leading-6 min-w-0 max-2xl:flex-[1_1_calc(50%-6px)] max-2xl:min-w-[min(280px,100%)] max-md:min-h-[124px] max-md:p-3 max-md:rounded-[20px] max-xs:flex-[1_1_calc(50%-4px)] max-xs:min-w-0 flex flex-col justify-end gap-1 text-text ${areWidgetsVisible ? 'widget-card-visible delay-[80ms]' : ''}`}>
           <Icon icon="ph:hand-waving" className="greeting-icon w-[34px] h-[34px] text-inherit shrink-0" aria-hidden="true" />
@@ -390,15 +393,31 @@ function WidgetContainer({
             />
           </div>
         ) : null}
-        {showGradeWidgets || showMailWidget ? (
-          // Below 2xl the grade and mail cards share their own row; from 2xl
+        {showGradeWidgets || showMailWidget || showDeadlinesWidget ? (
+          // Below 2xl the grade and list card share their own row; from 2xl
           // the wrapper dissolves (display: contents) into the widget row.
-          // empty:hidden covers the mail card rendering nothing (no session).
-          <div id={showGradeWidgets ? 'sidebar-section-grades' : undefined} className="flex-[1_1_100%] min-w-0 flex flex-wrap items-stretch gap-3 max-md:gap-2 empty:hidden 2xl:contents">
+          // empty:hidden covers the list card rendering nothing (no session).
+          // With both mail and deadlines, the wrappers always dissolve and the
+          // layout follows the row width instead ("Widget row layout with
+          // paired list cards" in overrides.css).
+          <div
+            id={showGradeWidgets ? 'sidebar-section-grades' : undefined}
+            className={pairListWidgets ? 'contents' : 'flex-[1_1_100%] min-w-0 flex flex-wrap items-stretch gap-3 max-md:gap-2 empty:hidden 2xl:contents'}
+          >
             {/* Bloc « Moyenne Générale » masqué pour l'instant — réimporter
                 WidgetAverageGrade et le rendre ici pour le réactiver. */}
             {showGradeWidgets ? <WidgetLatestGrade visible={areWidgetsVisible} /> : null}
-            {showMailWidget ? <WidgetRecentMail visible={areWidgetsVisible} /> : null}
+            {pairListWidgets ? (
+              <div className="widget-lists">
+                <WidgetRecentMail visible={areWidgetsVisible} />
+                <WidgetDeadlines visible={areWidgetsVisible} />
+              </div>
+            ) : (
+              <>
+                {showMailWidget ? <WidgetRecentMail visible={areWidgetsVisible} /> : null}
+                {showDeadlinesWidget ? <WidgetDeadlines visible={areWidgetsVisible} /> : null}
+              </>
+            )}
           </div>
         ) : null}
       </div>

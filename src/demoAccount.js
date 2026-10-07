@@ -918,3 +918,75 @@ export function buildDemoMailPayload({ now = Date.now(), webmailHref = DEMO_WEBM
     messages,
   }
 }
+
+// Demo deadlines for the "Échéances Moodle" widget. `hoursFromNow` is resolved
+// against the request time (negative = overdue) so dates always look current.
+const DEMO_MOODLE_DEADLINES = Object.freeze([
+  {
+    id: 'demo-moodle-tp3-api',
+    hoursFromNow: -2 * 24 - 3,
+    title: 'TP 3 – API REST avec Express',
+    courseName: 'R5.12 Développement back-end',
+    type: 'assign',
+    submitted: false,
+  },
+  {
+    id: 'demo-moodle-sae501-livrable2',
+    hoursFromNow: 4,
+    title: 'Rendu SAE 501 – Livrable 2',
+    courseName: 'SAE 5.01 Développement web',
+    type: 'assign',
+    submitted: false,
+  },
+  {
+    id: 'demo-moodle-qcm-rgaa',
+    hoursFromNow: 24 + 2,
+    title: 'QCM – Accessibilité et RGAA',
+    courseName: 'R5.03 Accessibilité numérique',
+    type: 'quiz',
+    submitted: false,
+  },
+  {
+    id: 'demo-moodle-forum-maquettes',
+    hoursFromNow: 3 * 24 + 5,
+    title: 'Forum : retours croisés sur les maquettes',
+    courseName: 'R5.07 Design d’interaction',
+    type: 'forum',
+    submitted: null,
+  },
+  {
+    id: 'demo-moodle-veille',
+    hoursFromNow: 7 * 24,
+    title: 'Dossier de veille technologique',
+    courseName: 'R5.06 Culture numérique',
+    type: 'assign',
+    submitted: true,
+  },
+  {
+    id: 'demo-moodle-sondage-s5',
+    hoursFromNow: 10 * 24 + 6,
+    title: 'Questionnaire de mi-semestre S5',
+    courseName: 'BUT MMI 3 – Vie de promo',
+    type: 'other',
+    submitted: null,
+  },
+])
+
+// Demo sessions open the demo "Moodle" app tile, never the real Moodle.
+const DEMO_MOODLE_HREF = DEMO_APPLICATIONS.find((application) => application.id === 'demo-moodle')?.href ?? null
+
+export function buildDemoMoodleDeadlinesPayload({ now = Date.now(), moodleHref = DEMO_MOODLE_HREF } = {}) {
+  const quarterHourMs = 15 * 60 * 1000
+  const items = DEMO_MOODLE_DEADLINES.map(({ hoursFromNow, ...deadline }) => {
+    // Round to the next quarter hour so due times look like real deadlines.
+    const dueAtMs = Math.ceil((now + hoursFromNow * 60 * 60 * 1000) / quarterHourMs) * quarterHourMs
+    return {
+      ...cloneDemoValue(deadline),
+      dueAt: new Date(dueAtMs).toISOString(),
+      overdue: dueAtMs < now,
+      href: null,
+    }
+  }).sort((left, right) => left.dueAt.localeCompare(right.dueAt))
+
+  return { moodleHref, items }
+}

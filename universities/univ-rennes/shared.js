@@ -54,6 +54,7 @@ export const features = {
   moodle: true,
   grades: true,
   mail: true,
+  moodleDeadlines: true,
   weather: { enabled: true, defaultCity: 'Rennes' },
   serviceCategories: false,
   demo: true,

@@ -1,6 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Icon } from '@iconify/react'
 import { getRecentMail } from '../entApi'
+import WidgetListStatus from './WidgetListStatus'
+import {
+  SHIMMER_CLASSES,
+  calendarDayDiff,
+  formatClockTime,
+  openInNewTab,
+  parseDate,
+  readStoredHref,
+  storeHref,
+} from './widgetListUtils'
 
 const MAX_VISIBLE_MESSAGES = 2
 const MAIL_REFRESH_MS = 5 * 60 * 1000
@@ -9,45 +19,18 @@ const MAIL_REFRESH_MS = 5 * 60 * 1000
 const WEBMAIL_HREF_KEY = 'l-ent:webmail-href'
 
 const CARD_CLASSES = 'recent-mail-widget widget-card shadow-md flex-[0_1_360px] h-[140px] p-4 border border-white rounded-[22px] overflow-hidden bg-widget-bg text-base leading-6 min-w-0 max-2xl:flex-[1_1_calc(50%-6px)] max-2xl:min-w-0 max-md:h-[124px] max-md:p-3 max-md:rounded-[20px] max-xs:flex-[1_1_100%] relative flex flex-col gap-[6px] text-text'
-const SHIMMER_CLASSES = 'bg-[linear-gradient(90deg,var(--color-bg-muted)_0%,var(--color-bg-subtle)_50%,var(--color-bg-muted)_100%)] bg-[length:200%_100%] animate-shimmer'
 const ROW_CLASSES = 'grid grid-cols-[6px_minmax(0,1fr)_auto] content-center items-center gap-x-[7px] gap-y-[3px] h-[38px] px-1.5 rounded-[10px] min-w-0 max-md:h-[36px]'
 
-const timeFormatter = new Intl.DateTimeFormat('fr-FR', { hour: '2-digit', minute: '2-digit' })
 const weekdayFormatter = new Intl.DateTimeFormat('fr-FR', { weekday: 'short' })
 const dayMonthFormatter = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'short' })
 const fullDateFormatter = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'full', timeStyle: 'short' })
-
-function readStoredWebmailHref() {
-  try {
-    return localStorage.getItem(WEBMAIL_HREF_KEY) || null
-  } catch {
-    return null
-  }
-}
-
-function storeWebmailHref(href) {
-  try {
-    if (href) localStorage.setItem(WEBMAIL_HREF_KEY, href)
-  } catch {
-    // Storage unavailable: the card just loses its error-state fallback.
-  }
-}
-
-function startOfDay(date) {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
-}
-
-function parseDate(value) {
-  const date = value ? new Date(value) : null
-  return date && !Number.isNaN(date.getTime()) ? date : null
-}
 
 // Mail-client style timestamp, matching the "15h15" notation used by the
 // next-class card: "14h32" today, "hier", "lun." this week, "12 sept." older.
 function formatReceivedAt(date, now = new Date()) {
   if (!date) return ''
-  const dayDiff = Math.round((startOfDay(now) - startOfDay(date)) / 86400000)
-  if (dayDiff <= 0) return timeFormatter.format(date).replace(':', 'h')
+  const dayDiff = -calendarDayDiff(date, now)
+  if (dayDiff <= 0) return formatClockTime(date)
   if (dayDiff === 1) return 'hier'
   if (dayDiff < 7) return weekdayFormatter.format(date)
   return dayMonthFormatter.format(date)
@@ -55,10 +38,6 @@ function formatReceivedAt(date, now = new Date()) {
 
 function getSenderLabel(from) {
   return from?.name?.trim() || from?.email?.trim() || 'Expéditeur inconnu'
-}
-
-function openInNewTab(href) {
-  if (href) window.open(href, '_blank', 'noopener,noreferrer')
 }
 
 function MailHeader({ unreadCount = 0 }) {
@@ -129,24 +108,9 @@ function MailRow({ message, fallbackHref, now }) {
   )
 }
 
-function MailStatus({ icon, title, body, children }) {
-  return (
-    <div className="flex-1 flex flex-col justify-center gap-1 min-w-0 min-h-0">
-      <div className="flex items-center gap-[7px] min-w-0">
-        <Icon icon={icon} className="w-[18px] h-[18px] shrink-0 opacity-70" aria-hidden="true" />
-        <span className="m-0 min-w-0 leading-[1.1] text-base font-bold overflow-hidden text-ellipsis whitespace-nowrap max-md:text-[15px]">{title}</span>
-      </div>
-      {body ? (
-        <p className="m-0 text-sm leading-[1.35] opacity-70 overflow-hidden text-ellipsis whitespace-nowrap" title={body}>{body}</p>
-      ) : null}
-      {children}
-    </div>
-  )
-}
-
 function WidgetRecentMail({ visible = false }) {
   const [state, setState] = useState({ status: 'loading', unreadCount: null, webmailHref: null, messages: [] })
-  const [storedWebmailHref, setStoredWebmailHref] = useState(readStoredWebmailHref)
+  const [storedWebmailHref, setStoredWebmailHref] = useState(() => readStoredHref(WEBMAIL_HREF_KEY))
   const [now, setNow] = useState(() => new Date())
   const lastLoadAtRef = useRef(0)
   const loadingRef = useRef(false)
@@ -163,7 +127,7 @@ function WidgetRecentMail({ visible = false }) {
       lastLoadAtRef.current = Date.now()
       setNow(new Date())
       if (result.webmailHref) {
-        storeWebmailHref(result.webmailHref)
+        storeHref(WEBMAIL_HREF_KEY, result.webmailHref)
         setStoredWebmailHref(result.webmailHref)
       }
       // Keep the last good list on a failed background refresh.
@@ -205,10 +169,6 @@ function WidgetRecentMail({ visible = false }) {
     ? (state.unreadCount ?? state.messages.filter((message) => message.unread).length)
     : 0
   const openWebmail = () => openInNewTab(webmailHref)
-  const handleRetry = (event) => {
-    event.stopPropagation()
-    void loadMail()
-  }
 
   return (
     <article
@@ -244,28 +204,17 @@ function WidgetRecentMail({ visible = false }) {
       ) : null}
 
       {state.status === 'ok' && messages.length === 0 ? (
-        <MailStatus icon="carbon:checkmark-outline" title="Aucun nouveau mail" body="Ta boîte de réception est à jour." />
+        <WidgetListStatus icon="carbon:checkmark-outline" title="Aucun nouveau mail" body="Ta boîte de réception est à jour." />
       ) : null}
 
       {state.status === 'error' ? (
-        <MailStatus icon="carbon:warning-alt" title="Mails indisponibles" body="La messagerie ne répond pas pour le moment.">
-          <div className="flex items-center gap-2 min-w-0 mt-0.5">
-            <button
-              type="button"
-              className="inline-flex items-center gap-[5px] min-h-[26px] px-[10px] border border-border-input rounded-full bg-bg-input text-text text-[13px] font-semibold leading-none cursor-pointer transition-[background-color] duration-[120ms] ease-in-out hover:bg-bg-subtle"
-              onClick={handleRetry}
-            >
-              <Icon icon="carbon:restart" className="w-[13px] h-[13px] shrink-0" aria-hidden="true" />
-              Réessayer
-            </button>
-            {webmailHref ? (
-              <span className="inline-flex items-center gap-1 min-w-0 text-[13px] font-semibold opacity-80 whitespace-nowrap overflow-hidden text-ellipsis">
-                Ouvrir la messagerie
-                <Icon icon="carbon:arrow-up-right" className="w-[13px] h-[13px] shrink-0" aria-hidden="true" />
-              </span>
-            ) : null}
-          </div>
-        </MailStatus>
+        <WidgetListStatus
+          icon="carbon:warning-alt"
+          title="Mails indisponibles"
+          body="La messagerie ne répond pas pour le moment."
+          onRetry={() => void loadMail()}
+          openLabel={webmailHref ? 'Ouvrir la messagerie' : null}
+        />
       ) : null}
     </article>
   )

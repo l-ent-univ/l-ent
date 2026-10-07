@@ -27,6 +27,10 @@ export default {
     // Shibboleth WAYF entity id used to pre-select the university on the
     // federation discovery page.
     wayfEntityId: 'urn:mace:cru.fr:federation:univ-rennes1.fr',
+    // "Échéances Moodle" widget (features.moodleDeadlines): hosts the
+    // server-side SAML sign-in chain may visit, besides Moodle and CAS
+    // (the university WAYF and Shibboleth IdP). HTTPS only.
+    signInDomains: ['wayf.univ-rennes.fr', 'ident-shib.univ-rennes1.fr'],
   },
 
   // Credentials of the official "Campus" mobile app, required by the ADE

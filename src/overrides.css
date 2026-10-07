@@ -659,6 +659,139 @@
   }
 }
 
+/* ── Widget row layout with paired list cards ──
+   When both list cards (mail + deadlines) actually render, the row lays out
+   from its own width (sidebar or not) instead of viewport breakpoints. If
+   either renders nothing (no session, feature off server-side), :has() stops
+   matching and the row falls back to the default card flow. These rules are
+   unlayered, so they win over the cards' Tailwind flex utilities.
+   ≥ 1712px : one row, natural card widths (default flex bases).
+   760–1711 : greeting · next class · grade share row 1 in thirds,
+              mail | deadlines share row 2 in halves.
+   496–759  : rows of two (greeting | next class when they fit, grade |
+              mail), then deadlines full width.
+   < 496    : everything stacks (default max-xs utilities). */
+
+.widget-row {
+  container: widget-row / inline-size;
+}
+
+.widget-lists {
+  display: contents;
+}
+
+@container widget-row (min-width: 496px) and (max-width: 759.98px) {
+  /* Greeting | next class in halves when both fit their min widths,
+     stacked otherwise; grade never joins their row. */
+  .widget-row:has(.recent-mail-widget):has(.moodle-deadlines-widget) > .widget-card {
+    flex: 1 1 0;
+    min-width: 260px;
+  }
+
+  .widget-row:has(.recent-mail-widget):has(.moodle-deadlines-widget) .next-class-widget {
+    flex: 1 1 0;
+    min-width: 320px;
+  }
+
+  .widget-row:has(.recent-mail-widget):has(.moodle-deadlines-widget) .latest-grade-widget,
+  .widget-row:has(.recent-mail-widget):has(.moodle-deadlines-widget) .recent-mail-widget {
+    flex: 1 1 calc(50% - 6px);
+    min-width: 0;
+  }
+
+  .widget-row:has(.recent-mail-widget):has(.moodle-deadlines-widget) .moodle-deadlines-widget {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+}
+
+@container widget-row (min-width: 760px) and (max-width: 1711.98px) {
+  .widget-row:has(.recent-mail-widget):has(.moodle-deadlines-widget) > .widget-card,
+  .widget-row:has(.recent-mail-widget):has(.moodle-deadlines-widget) > .contents > .widget-card {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .widget-row:has(.recent-mail-widget):has(.moodle-deadlines-widget) .widget-lists {
+    display: flex;
+    flex: 1 1 100%;
+    gap: 12px;
+    min-width: 0;
+  }
+
+  .widget-row:has(.recent-mail-widget):has(.moodle-deadlines-widget) .widget-lists > .widget-card {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+}
+
+/* ── Moodle deadlines widget ── */
+
+.moodle-deadlines-widget {
+  transition-property: opacity, transform, background-color;
+  transition-duration: 320ms, 320ms, 150ms;
+  transition-delay: 400ms, 400ms, 0ms;
+  transition-timing-function: ease;
+}
+
+.moodle-deadlines-widget.cursor-pointer:hover {
+  background-color: var(--color-bg-subtle);
+}
+
+.moodle-deadlines-widget .deadline-corner-link {
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+
+.moodle-deadlines-widget:hover .deadline-corner-link {
+  opacity: 0.45;
+}
+
+.moodle-deadlines-widget .deadline-corner-link:hover,
+.moodle-deadlines-widget .deadline-corner-link:focus-visible {
+  opacity: 1;
+}
+
+/* Urgency palette: amber = due within 48 h, red = overdue. */
+.deadline-pill {
+  background-color: #f59e0b;
+  color: #2b1600;
+}
+
+.deadline-pill.deadline-pill-overdue {
+  background-color: #dc2626;
+  color: #ffffff;
+}
+
+.deadline-due-soon {
+  color: #b45309;
+}
+
+.deadline-due-overdue {
+  color: var(--color-error);
+}
+
+.deadline-submitted-icon {
+  color: var(--color-success-text);
+  opacity: 0.75;
+}
+
+@media (prefers-color-scheme: dark) {
+  .deadline-pill {
+    background-color: #fbbf24;
+    color: #0f0f0f;
+  }
+
+  .deadline-pill.deadline-pill-overdue {
+    background-color: #f87171;
+    color: #0f0f0f;
+  }
+
+  .deadline-due-soon {
+    color: #fbbf24;
+  }
+}
+
 /* ── Average grade wave dark mode ── */
 
 @media (prefers-color-scheme: dark) {
