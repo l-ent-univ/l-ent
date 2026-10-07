@@ -764,16 +764,94 @@ async function performEntLogin({ username, password }) {
   }
 }
 
-async function ensureGradesSession(jar) {
+// One ScoDoc sign-in at a time per cookie jar: concurrent doAuth runs (grades
+// widget + profile photo on dashboard load) overwrite each other's PHP session,
+// and the loser's data.php call answers { redirect } instead of grades.
+const gradesAuthInflight = new WeakMap()
+
+function ensureGradesSession(jar) {
   if (!GRADES_ORIGIN) {
-    throw new Error('Grade service is not configured for this university.')
+    return Promise.reject(new Error('Grade service is not configured for this university.'))
+  }
+
+  const inflight = gradesAuthInflight.get(jar)
+  if (inflight) {
+    return inflight
   }
 
   const doAuthUrl = `${GRADES_ORIGIN}/services/doAuth.php?href=${encodeURIComponent(`${GRADES_ORIGIN}/`)}`
-  const result = await followRedirectChain(doAuthUrl, jar, {
+  const promise = followRedirectChain(doAuthUrl, jar, {
     headers: { Accept: 'text/html,application/xhtml+xml,*/*' },
   })
-  await result.response.text()
+    .then((result) => result.response.text())
+    .then(() => undefined)
+    .finally(() => gradesAuthInflight.delete(jar))
+
+  gradesAuthInflight.set(jar, promise)
+  return promise
+}
+
+// data.php answers { redirect: … } (HTTP 200) when the ScoDoc session isn't
+// signed in; only payloads with a relevé or semester list are real grades.
+function isValidGradesPayload(payload) {
+  return Boolean(payload)
+    && typeof payload === 'object'
+    && !payload.redirect
+    && (Boolean(payload['relevé']) || Array.isArray(payload.semestres))
+}
+
+async function requestGradesData(jar) {
+  const dataUrl = `${GRADES_ORIGIN}/services/data.php?q=dataPremi%C3%A8reConnexion`
+  const dataResponse = await fetchWithJar(dataUrl, jar, {
+    headers: {
+      Accept: 'application/json, */*',
+      Referer: `${GRADES_ORIGIN}/`,
+    },
+    redirect: 'follow',
+  })
+  const dataText = await dataResponse.text()
+
+  try {
+    return { ok: dataResponse.ok, status: dataResponse.status, payload: JSON.parse(dataText) }
+  } catch {
+    throw new Error(`ScoDoc returned an invalid response (${dataResponse.status}).`)
+  }
+}
+
+// Signs in to ScoDoc and reads the grades, retrying once with a fresh sign-in
+// when ScoDoc says the session isn't authenticated.
+async function fetchGradesData(jar) {
+  let lastStatus = null
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await ensureGradesSession(jar)
+    const { ok, status, payload } = await requestGradesData(jar)
+    lastStatus = status
+
+    if (ok && isValidGradesPayload(payload)) {
+      return payload
+    }
+
+    if (!payload?.redirect) {
+      break
+    }
+  }
+
+  throw new Error(`ScoDoc grades request failed (${lastStatus}).`)
+}
+
+// Concurrent /grades requests for the same session share one upstream fetch.
+const gradesFetchInflight = new Map()
+
+function fetchGradesDataOnce(session) {
+  const inflight = gradesFetchInflight.get(session.id)
+  if (inflight) {
+    return inflight
+  }
+
+  const promise = fetchGradesData(session.jar).finally(() => gradesFetchInflight.delete(session.id))
+  gradesFetchInflight.set(session.id, promise)
+  return promise
 }
 
 function isGradesStudentPicture(picture) {
@@ -2286,27 +2364,7 @@ app.get('/__ent_auth/grades', async (req, res) => {
       })
     }
 
-    await ensureGradesSession(session.jar)
-    const dataUrl = `${GRADES_ORIGIN}/services/data.php?q=dataPremi%C3%A8reConnexion`
-    const dataResponse = await fetchWithJar(dataUrl, session.jar, {
-      headers: {
-        Accept: 'application/json, */*',
-        Referer: `${GRADES_ORIGIN}/`,
-      },
-      redirect: 'follow',
-    })
-    const dataText = await dataResponse.text()
-    let gradesData = null
-
-    try {
-      gradesData = JSON.parse(dataText)
-    } catch {
-      throw new Error(`ScoDoc returned an invalid response (${dataResponse.status}).`)
-    }
-
-    if (!dataResponse.ok || !gradesData || typeof gradesData !== 'object') {
-      throw new Error(`ScoDoc grades request failed (${dataResponse.status}).`)
-    }
+    const gradesData = await fetchGradesDataOnce(session)
 
     setCachedGrades(session.id, gradesData)
     setSessionCookie(res, session)

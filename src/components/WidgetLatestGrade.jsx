@@ -108,14 +108,32 @@ function LiveWidgetLatestGrade({ visible }) {
 
   useEffect(() => {
     let mounted = true
-    getLatestGrade()
-      .then((data) => {
-        if (mounted && data && !data.error) {
-          setGrade(data)
-        }
-      })
-      .catch(() => {})
-    return () => { mounted = false }
+    let retryTimer = null
+
+    // One retry after a short delay: a transient ScoDoc hiccup on dashboard
+    // load shouldn't hide the card for the whole visit.
+    const load = (attempt) => {
+      getLatestGrade()
+        .then((data) => {
+          if (!mounted) return
+          if (data && !data.error) {
+            setGrade(data)
+          } else if (attempt === 0 && !data?.disabled) {
+            retryTimer = window.setTimeout(() => load(1), 3000)
+          }
+        })
+        .catch(() => {
+          if (mounted && attempt === 0) {
+            retryTimer = window.setTimeout(() => load(1), 3000)
+          }
+        })
+    }
+
+    load(0)
+    return () => {
+      mounted = false
+      window.clearTimeout(retryTimer)
+    }
   }, [])
 
   useEffect(() => {

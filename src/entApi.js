@@ -358,9 +358,22 @@ export async function getRecentMail() {
 
 const GRADES_CACHE_KEY = 'l-ent:grades-cache'
 
-export async function getGrades({ force = false } = {}) {
-  void force
+// App bootstrap, the latest-grade widget and the sidebar pockets all ask for
+// grades on load: share one in-flight request instead of hitting ScoDoc N times.
+let gradesInflight = null
 
+export function getGrades({ force = false } = {}) {
+  if (!force && gradesInflight) {
+    return gradesInflight
+  }
+
+  gradesInflight = requestGrades().finally(() => {
+    gradesInflight = null
+  })
+  return gradesInflight
+}
+
+async function requestGrades() {
   if (!universityConfig.features?.grades) {
     return {
       authenticated: false,
