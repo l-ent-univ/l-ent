@@ -271,8 +271,8 @@ function AccountModal({
   lookaheadDays,
   lookaheadOptions,
   onLookaheadChange,
-  showGreeting = true,
-  onShowGreetingChange,
+  widgetToggles = [],
+  onWidgetVisibilityChange,
   showAppDescriptions = false,
   onShowAppDescriptionsChange,
 }) {
@@ -519,19 +519,32 @@ function AccountModal({
               </>
             ) : null}
 
-            {typeof onShowGreetingChange === 'function' || typeof onShowAppDescriptionsChange === 'function' ? (
+            {typeof onWidgetVisibilityChange === 'function' && widgetToggles.length > 0 ? (
               <>
                 <div className="h-px w-full bg-[var(--color-border)]" aria-hidden="true" />
 
                 <div className="flex flex-col gap-[14px]">
-                  {typeof onShowGreetingChange === 'function' ? (
+                  <p className="m-0 font-body text-[13px] font-semibold uppercase tracking-[0.06em] text-text-50">
+                    Widgets
+                  </p>
+                  {widgetToggles.map((widget) => (
                     <SettingSwitch
-                      icon="ph:hand-waving"
-                      label="Carte de bienvenue"
-                      checked={showGreeting}
-                      onChange={onShowGreetingChange}
+                      key={widget.id}
+                      icon={widget.icon}
+                      label={widget.label}
+                      checked={widget.visible}
+                      onChange={(visible) => onWidgetVisibilityChange(widget.id, visible)}
                     />
-                  ) : null}
+                  ))}
+                </div>
+              </>
+            ) : null}
+
+            {typeof onShowAppDescriptionsChange === 'function' ? (
+              <>
+                <div className="h-px w-full bg-[var(--color-border)]" aria-hidden="true" />
+
+                <div className="flex flex-col gap-[14px]">
                   {typeof onShowAppDescriptionsChange === 'function' ? (
                     <SettingSwitch
                       icon="carbon:text-short-paragraph"

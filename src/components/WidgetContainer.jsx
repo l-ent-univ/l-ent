@@ -6,6 +6,7 @@ import WidgetDeadlines from './WidgetDeadlines'
 import WidgetLatestGrade from './WidgetLatestGrade'
 import WidgetNextClass from './WidgetNextClass'
 import WidgetRecentMail from './WidgetRecentMail'
+import { isWidgetAvailable } from '../dashboardWidgets'
 import {
   getCurrentLocationWeather,
   getEditableLocationLabel,
@@ -15,10 +16,6 @@ import {
 const WEATHER_CITY_KEY = 'l-ent:weather-city'
 const WEATHER_CONFIG = universityConfig.features?.weather ?? {}
 const DEFAULT_WEATHER_CITY = WEATHER_CONFIG.defaultCity || 'Paris'
-
-function getEstablishmentConfig(establishment) {
-  return universityConfig.establishments?.byId?.[establishment] ?? null
-}
 
 const INITIAL_WEATHER_STATE = {
   summary: 'Chargement météo...',
@@ -206,9 +203,7 @@ function WidgetContainer({
   nextClassLookaheadDays = undefined,
   debugNextClass = false,
   canUseServerLaunch = true,
-  hideNextClass = false,
-  hideGradeWidgets = false,
-  hideGreeting = false,
+  hiddenWidgets = [],
   onDismissGreeting,
   showAppDescriptions = false,
   favoritesPortalTarget = null,
@@ -353,17 +348,18 @@ function WidgetContainer({
   }, [locationQuery])
 
   const isLocationActionDisabled = isWeatherLoading
-  const showGradeWidgets = !hideGradeWidgets
-    && Boolean(universityConfig.features?.grades)
-    && Boolean(getEstablishmentConfig(establishment)?.gradeWidgets)
-  const showMailWidget = Boolean(universityConfig.features?.mail)
-  const showDeadlinesWidget = Boolean(universityConfig.features?.moodleDeadlines)
+  const isShown = (widgetId) => isWidgetAvailable(widgetId, establishment) && !hiddenWidgets.includes(widgetId)
+  const showGreeting = !hiddenWidgets.includes('greeting')
+  const showNextClass = debugNextClass || isShown('nextClass')
+  const showGradeWidgets = isShown('latestGrade')
+  const showMailWidget = isShown('mail')
+  const showDeadlinesWidget = isShown('deadlines')
   const pairListWidgets = showMailWidget && showDeadlinesWidget
 
   return (
     <section className="w-full grid gap-10 pt-4 px-6 pb-6 4xl:pt-5 max-md:px-3 max-md:pt-3 max-md:pb-5 max-md:gap-8" aria-label="Widgets">
       <div className="widget-row flex flex-wrap gap-3 items-stretch max-md:gap-2 overflow-visible p-2 -m-2">
-        {!hideGreeting ? (
+        {showGreeting ? (
         <article className={`widget-card group relative shadow-md flex-[0_1_280px] min-h-[140px] p-4 border border-white rounded-[22px] overflow-hidden bg-widget-bg text-base leading-6 min-w-0 max-2xl:flex-[1_1_calc(50%-6px)] max-2xl:min-w-[min(280px,100%)] max-md:min-h-[124px] max-md:p-3 max-md:rounded-[20px] max-xs:flex-[1_1_calc(50%-4px)] max-xs:min-w-0 flex flex-col justify-end gap-1 text-text ${areWidgetsVisible ? 'widget-card-visible' : ''}`}>
           <Icon icon="ph:hand-waving" className="greeting-icon w-[34px] h-[34px] text-inherit shrink-0" aria-hidden="true" />
           <h2 className="m-0 min-w-0 leading-[1.15] text-2xl font-bold overflow-hidden text-ellipsis whitespace-nowrap max-md:text-[22px]" title={`Salut ${displayName} !`}>Salut {displayName} !</h2>
@@ -382,7 +378,7 @@ function WidgetContainer({
         </article>
         ) : null}
 
-        {!hideNextClass && (getEstablishmentConfig(establishment)?.nextClassWidget || debugNextClass) ? (
+        {showNextClass ? (
           <div id="sidebar-section-planning" className="contents">
             <WidgetNextClass
               visible={areWidgetsVisible}

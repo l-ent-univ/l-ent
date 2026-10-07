@@ -2,6 +2,7 @@ export const ESTABLISHMENT_KEY = 'l-ent:establishment'
 export const STUDENT_TP_KEY = 'l-ent:student-tp'
 export const ADE_LOOKAHEAD_KEY = 'l-ent:ade-lookahead-days'
 export const GREETING_HIDDEN_KEY = 'l-ent:greeting-hidden'
+export const HIDDEN_WIDGETS_KEY = 'l-ent:hidden-widgets'
 export const APP_DESCRIPTIONS_KEY = 'l-ent:show-app-descriptions'
 const STUDENT_TP_SELECTION_VERSION = 4
 
@@ -171,16 +172,24 @@ export function persistAdeLookaheadDays(days, userId = null) {
   }
 }
 
-export function getStoredGreetingHidden(userId = null) {
-  return readScopedStorageValue(GREETING_HIDDEN_KEY, userId) === true
+// Ids of dashboard widgets the user hid (see src/dashboardWidgets.js).
+// Falls back to the older greeting-only flag so a dismissed greeting stays hidden.
+export function getStoredHiddenWidgets(userId = null) {
+  const storedValue = readScopedStorageValue(HIDDEN_WIDGETS_KEY, userId)
+  if (Array.isArray(storedValue)) {
+    return storedValue.filter((widgetId) => typeof widgetId === 'string')
+  }
+
+  return readScopedStorageValue(GREETING_HIDDEN_KEY, userId) === true ? ['greeting'] : []
 }
 
-export function persistGreetingHidden(hidden, userId = null) {
+export function persistHiddenWidgets(widgetIds, userId = null) {
   try {
-    localStorage.setItem(GREETING_HIDDEN_KEY, JSON.stringify({
+    localStorage.setItem(HIDDEN_WIDGETS_KEY, JSON.stringify({
       user: userId || null,
-      value: Boolean(hidden),
+      value: Array.from(new Set(widgetIds)),
     }))
+    localStorage.removeItem(GREETING_HIDDEN_KEY)
   } catch {
     // Storage unavailable
   }

@@ -22,17 +22,18 @@ import {
   clearStoredTpSelection,
   getStoredAdeLookaheadDays,
   getStoredEstablishment,
-  getStoredGreetingHidden,
+  getStoredHiddenWidgets,
   getStoredShowAppDescriptions,
   getStoredTpSelection,
   persistAdeLookaheadDays,
   persistEstablishment,
-  persistGreetingHidden,
+  persistHiddenWidgets,
   persistShowAppDescriptions,
   persistTpSelection,
 } from './profileStorage'
 import WidgetContainer from './components/WidgetContainer'
 import { resolveHeroImage } from './heroImage'
+import { getAvailableWidgets } from './dashboardWidgets'
 import {
   ENT_ORIGIN,
   buildEntProxyHref,
@@ -962,7 +963,7 @@ function App() {
   const [establishment, setEstablishment] = useState(() => getStoredEstablishment())
   const [selectedTp, setSelectedTp] = useState(() => getStoredTpSelection())
   const [nextClassLookaheadDays, setNextClassLookaheadDays] = useState(() => getStoredAdeLookaheadDays())
-  const [isGreetingHidden, setIsGreetingHidden] = useState(() => getStoredGreetingHidden())
+  const [hiddenWidgets, setHiddenWidgets] = useState(() => getStoredHiddenWidgets())
   const [showAppDescriptions, setShowAppDescriptions] = useState(() => getStoredShowAppDescriptions())
   // Lookahead actually fed to the next-class widget. Re-synced only while the
   // account modal is closed, so moving the slider doesn't refetch the widget
@@ -1264,7 +1265,7 @@ function App() {
     setEstablishment(getStoredEstablishment(sessionState.user))
     setSelectedTp(getStoredTpSelection(sessionState.user))
     setNextClassLookaheadDays(getStoredAdeLookaheadDays(sessionState.user))
-    setIsGreetingHidden(getStoredGreetingHidden(sessionState.user))
+    setHiddenWidgets(getStoredHiddenWidgets(sessionState.user))
     setShowAppDescriptions(getStoredShowAppDescriptions(sessionState.user))
     setHasHydratedProfile(false)
     setTpOnboardingState(createEmptyTpOnboardingState())
@@ -1772,10 +1773,22 @@ function App() {
     heroObserverRef.current = observer
   }, [])
 
-  const handleGreetingHiddenChange = useCallback((hidden) => {
-    persistGreetingHidden(hidden, sessionState.user)
-    setIsGreetingHidden(hidden)
+  const handleWidgetVisibilityChange = useCallback((widgetId, visible) => {
+    setHiddenWidgets((current) => {
+      const next = visible
+        ? current.filter((id) => id !== widgetId)
+        : [...current.filter((id) => id !== widgetId), widgetId]
+      persistHiddenWidgets(next, sessionState.user)
+      return next
+    })
   }, [sessionState.user])
+
+  const widgetToggles = useMemo(() => getAvailableWidgets(establishment).map((widget) => ({
+    id: widget.id,
+    label: widget.label,
+    icon: widget.icon,
+    visible: !hiddenWidgets.includes(widget.id),
+  })), [establishment, hiddenWidgets])
 
   const handleShowAppDescriptionsChange = useCallback((show) => {
     persistShowAppDescriptions(show, sessionState.user)
@@ -2421,8 +2434,8 @@ function App() {
                 debugNextClass={debugNextClass}
                 canUseServerLaunch={sessionState.canUseServerLaunch}
                 favoritesPortalTarget={isSidebarViewport ? favoritesSlotEl : null}
-                hideGreeting={isGreetingHidden}
-                onDismissGreeting={() => handleGreetingHiddenChange(true)}
+                hiddenWidgets={hiddenWidgets}
+                onDismissGreeting={() => handleWidgetVisibilityChange('greeting', false)}
                 showAppDescriptions={showAppDescriptions}
               />
             </div>
@@ -2455,8 +2468,8 @@ function App() {
         lookaheadDays={nextClassLookaheadDays}
         lookaheadOptions={ADE_LOOKAHEAD_DAY_OPTIONS}
         onLookaheadChange={handleNextClassLookaheadChange}
-        showGreeting={!isGreetingHidden}
-        onShowGreetingChange={(show) => handleGreetingHiddenChange(!show)}
+        widgetToggles={widgetToggles}
+        onWidgetVisibilityChange={handleWidgetVisibilityChange}
         showAppDescriptions={showAppDescriptions}
         onShowAppDescriptionsChange={handleShowAppDescriptionsChange}
       />
