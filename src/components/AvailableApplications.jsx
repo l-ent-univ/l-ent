@@ -779,6 +779,7 @@ function AvailableApplications({
   establishment = null,
   canUseServerLaunch = true,
   favoritesPortalTarget = null,
+  showDescriptions = false,
 }) {
   const [viewState, setViewState] = useState({
     status: 'loading',
@@ -1750,7 +1751,7 @@ function AvailableApplications({
                   />
                   <span className="flex flex-col gap-0.5 flex-1 min-w-0">
                     <span className="text-[15px] font-semibold leading-[1.2] whitespace-nowrap overflow-hidden text-ellipsis">{service.title}</span>
-                    {service.description ? (
+                    {showDescriptions && service.description ? (
                       <span className="text-[13px] font-medium leading-[1.3] text-text-muted line-clamp-1 font-body">{service.description}</span>
                     ) : null}
                   </span>

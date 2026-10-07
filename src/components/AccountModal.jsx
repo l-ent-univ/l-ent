@@ -232,6 +232,31 @@ function StepSlider({ options, value, onChange, ariaLabel, disabled = false }) {
   )
 }
 
+function SettingSwitch({ icon, label, checked, onChange }) {
+  return (
+    <label className="flex cursor-pointer items-center justify-between gap-3">
+      <span className="flex h-[17px] min-w-0 items-center gap-[5px]">
+        <Icon icon={icon} className="h-[17px] w-[17px] shrink-0 text-[var(--color-text)]" aria-hidden="true" />
+        <span className="font-body text-[16px] font-medium leading-[16.96px] tracking-[-0.3125px] text-[var(--color-text)]">
+          {label}
+        </span>
+      </span>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        onClick={() => onChange(!checked)}
+        className={`relative inline-flex h-[26px] w-[44px] shrink-0 items-center rounded-full border-0 p-0 transition-colors duration-150 ease-in-out ${checked ? 'bg-text' : 'bg-text-30'}`}
+      >
+        <span
+          aria-hidden="true"
+          className={`absolute left-[3px] top-[3px] h-5 w-5 rounded-full bg-widget-bg shadow-[0_1px_3px_rgba(0,0,0,0.2)] transition-transform duration-150 ease-in-out ${checked ? 'translate-x-[18px]' : 'translate-x-0'}`}
+        />
+      </button>
+    </label>
+  )
+}
+
 function AccountModal({
   open,
   onClose,
@@ -248,6 +273,8 @@ function AccountModal({
   onLookaheadChange,
   showGreeting = true,
   onShowGreetingChange,
+  showAppDescriptions = false,
+  onShowAppDescriptionsChange,
 }) {
   useEffect(() => {
     if (!open) {
@@ -492,30 +519,28 @@ function AccountModal({
               </>
             ) : null}
 
-            {typeof onShowGreetingChange === 'function' ? (
+            {typeof onShowGreetingChange === 'function' || typeof onShowAppDescriptionsChange === 'function' ? (
               <>
                 <div className="h-px w-full bg-[var(--color-border)]" aria-hidden="true" />
 
-                <label className="flex cursor-pointer items-center justify-between gap-3">
-                  <span className="flex h-[17px] min-w-0 items-center gap-[5px]">
-                    <Icon icon="ph:hand-waving" className="h-[17px] w-[17px] shrink-0 text-[var(--color-text)]" aria-hidden="true" />
-                    <span className="font-body text-[16px] font-medium leading-[16.96px] tracking-[-0.3125px] text-[var(--color-text)]">
-                      Carte de bienvenue
-                    </span>
-                  </span>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={showGreeting}
-                    onClick={() => onShowGreetingChange(!showGreeting)}
-                    className={`relative inline-flex h-[26px] w-[44px] shrink-0 items-center rounded-full border-0 p-0 transition-colors duration-150 ease-in-out ${showGreeting ? 'bg-text' : 'bg-text-30'}`}
-                  >
-                    <span
-                      aria-hidden="true"
-                      className={`absolute left-[3px] top-[3px] h-5 w-5 rounded-full bg-widget-bg shadow-[0_1px_3px_rgba(0,0,0,0.2)] transition-transform duration-150 ease-in-out ${showGreeting ? 'translate-x-[18px]' : 'translate-x-0'}`}
+                <div className="flex flex-col gap-[14px]">
+                  {typeof onShowGreetingChange === 'function' ? (
+                    <SettingSwitch
+                      icon="ph:hand-waving"
+                      label="Carte de bienvenue"
+                      checked={showGreeting}
+                      onChange={onShowGreetingChange}
                     />
-                  </button>
-                </label>
+                  ) : null}
+                  {typeof onShowAppDescriptionsChange === 'function' ? (
+                    <SettingSwitch
+                      icon="carbon:text-short-paragraph"
+                      label="Descriptions des applications"
+                      checked={showAppDescriptions}
+                      onChange={onShowAppDescriptionsChange}
+                    />
+                  ) : null}
+                </div>
               </>
             ) : null}
 

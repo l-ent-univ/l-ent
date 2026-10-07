@@ -208,6 +208,7 @@ function WidgetContainer({
   hideGradeWidgets = false,
   hideGreeting = false,
   onDismissGreeting,
+  showAppDescriptions = false,
   favoritesPortalTarget = null,
 }) {
   const displayName = userName?.trim() || ' '
@@ -398,6 +399,7 @@ function WidgetContainer({
           establishment={establishment}
           canUseServerLaunch={canUseServerLaunch}
           favoritesPortalTarget={favoritesPortalTarget}
+          showDescriptions={showAppDescriptions}
         />
       </div>
 
