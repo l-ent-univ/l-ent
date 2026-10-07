@@ -46,6 +46,7 @@ export const hostnames = ['rennes.lent.example', 'ent-rennes.example.fr']
 - `auth.portalEntryPath` — page d'atterrissage uPortal (souvent `/f/services/normal/render.uP`). Sert de point d'entrée de connexion, de `Referer` par défaut et de preuve d'authentification.
 - `branding` — `appName`, `defaultTitle`, `seoTitle`, `seoDescription`, `logo` (+ `logoAlt`, `loginFooterLine`, `about.*`). Utilisé par la page de connexion, la sidebar, le SEO, le manifest PWA et `index.html` (placeholders `%LENT_*%`).
   - `lockup` / `lockupDark` (optionnels, `client.js` uniquement) — visuel combiné « l'ent × université » affiché dans la sidebar et le header (comme Rennes). Sans eux, le logo l'ent et votre `logo` sont composés côte à côte automatiquement.
+  - `heroImages` (optionnel, `client.js` uniquement) — photos affichées en fond du haut du tableau de bord, en fondu vers le fond uni : `[{ src, credit: { author, license, url }, position? }]`. Plusieurs photos tournent chaque jour. Chaque établissement peut définir ses propres `heroImages` dans `establishments.byId`. Sans photo, un placeholder générique est affiché. Le crédit apparaît dans le footer : utilisez des images libres de droits (ex. Wikimedia Commons) et renseignez auteur + licence.
 - `features` — l'interrupteur général (voir ci-dessous).
 
 ### Features (dégradation gracieuse)

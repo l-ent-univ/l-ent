@@ -18,8 +18,8 @@
 /* ── Dashboard hero image fade ── */
 
 .dashboard-hero {
-  -webkit-mask-image: linear-gradient(to bottom, #000 30%, transparent 100%);
-  mask-image: linear-gradient(to bottom, #000 30%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, rgb(0 0 0 / 0.85) 0%, rgb(0 0 0 / 0.55) 50%, transparent 100%);
+  mask-image: linear-gradient(to bottom, rgb(0 0 0 / 0.85) 0%, rgb(0 0 0 / 0.55) 50%, transparent 100%);
 }
 
 /* ── Primary button depth ── */

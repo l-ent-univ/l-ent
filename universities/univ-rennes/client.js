@@ -4,6 +4,10 @@
 import logo from './assets/logo.svg'
 import lockup from './assets/lockup.svg'
 import lockupDark from './assets/lockup-dark.svg'
+import heroLannionBrelevenez from './assets/hero/lannion-brelevenez.webp'
+import heroLannionLeguer from './assets/hero/lannion-leguer.webp'
+import heroRennesBeaulieu1 from './assets/hero/rennes-beaulieu-1.webp'
+import heroRennesBeaulieu2 from './assets/hero/rennes-beaulieu-2.webp'
 import { getAppIcon } from './app-icons/index.js'
 import {
   id,
@@ -30,6 +34,27 @@ export default {
     // Universities without one get an auto-composed l'ent + logo lockup.
     lockup,
     lockupDark,
+    // Optional dashboard hero photos (rotated daily). Establishments can
+    // override them with their own `heroImages`; without any, l'ent shows a
+    // generic placeholder. Credit is rendered in the footer.
+    heroImages: [
+      {
+        src: heroRennesBeaulieu1,
+        credit: {
+          author: 'Anthony Carré',
+          license: 'CC0',
+          url: 'https://commons.wikimedia.org/wiki/File:Beaulieu_1_Universit%C3%A9_de_Rennes.JPG',
+        },
+      },
+      {
+        src: heroRennesBeaulieu2,
+        credit: {
+          author: 'Sylenius',
+          license: 'CC BY 2.5',
+          url: 'https://commons.wikimedia.org/wiki/File:Campus_beaulieu.jpg',
+        },
+      },
+    ],
   },
 
   // Optional help links (login page + account modal); omit an entry to hide it.
@@ -84,6 +109,24 @@ export default {
     byId: {
       iutlan: {
         label: 'IUT de Lannion',
+        heroImages: [
+          {
+            src: heroLannionBrelevenez,
+            credit: {
+              author: 'Laurent',
+              license: 'CC BY-SA 3.0',
+              url: 'https://commons.wikimedia.org/wiki/File:VueDeLannionEtBrelevenez.jpg',
+            },
+          },
+          {
+            src: heroLannionLeguer,
+            credit: {
+              author: 'Kev22',
+              license: 'CC BY-SA 4.0',
+              url: 'https://commons.wikimedia.org/wiki/File:Lannion_-_Le_L%C3%A9guer_03.jpg',
+            },
+          },
+        ],
         gradeWidgets: true,
         nextClassWidget: true,
         extraServices: [

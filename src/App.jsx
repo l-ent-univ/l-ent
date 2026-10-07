@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from '@iconify/react'
 import universityConfig from '@university'
 import favicon from './assets/favicon.png'
@@ -30,8 +30,7 @@ import {
   persistTpSelection,
 } from './profileStorage'
 import WidgetContainer from './components/WidgetContainer'
-// Placeholder — swap for the final dashboard hero image.
-import dashboardHeroImage from './assets/dashboard-hero-placeholder.svg'
+import { resolveHeroImage } from './heroImage'
 import {
   ENT_ORIGIN,
   buildEntProxyHref,
@@ -1738,6 +1737,8 @@ function App() {
     setNextClassLookaheadDays(days)
   }, [sessionState.user])
 
+  const heroImage = useMemo(() => resolveHeroImage(establishment), [establishment])
+
   const handleGreetingHiddenChange = useCallback((hidden) => {
     persistGreetingHidden(hidden, sessionState.user)
     setIsGreetingHidden(hidden)
@@ -2343,8 +2344,11 @@ function App() {
             {/* Hero image behind the header and widget cards, fading into the solid background. */}
             <div
               aria-hidden="true"
-              className="dashboard-hero pointer-events-none absolute inset-x-0 top-0 -z-10 h-[300px] bg-cover bg-center max-md:h-[380px] dark:opacity-60"
-              style={{ backgroundImage: `url("${dashboardHeroImage}")` }}
+              className="dashboard-hero pointer-events-none absolute inset-x-0 top-0 -z-10 h-[230px] bg-cover bg-[center_40%] max-md:h-[260px] dark:opacity-60"
+              style={{
+                backgroundImage: `url("${heroImage.src}")`,
+                ...(heroImage.position ? { backgroundPosition: heroImage.position } : null),
+              }}
             />
             <div className="4xl:hidden">
               <AppHeader
@@ -2383,7 +2387,7 @@ function App() {
               />
             </div>
             <div className="4xl:mt-auto">
-              <AppFooter />
+              <AppFooter heroCredit={heroImage.credit} />
             </div>
           </div>
         </div>
