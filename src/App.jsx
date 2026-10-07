@@ -30,6 +30,8 @@ import {
   persistTpSelection,
 } from './profileStorage'
 import WidgetContainer from './components/WidgetContainer'
+// Placeholder — swap for the final dashboard hero image.
+import dashboardHeroImage from './assets/dashboard-hero-placeholder.svg'
 import {
   ENT_ORIGIN,
   buildEntProxyHref,
@@ -2337,7 +2339,13 @@ function App() {
             onUpdateClick={handleApplyUpdate}
             establishment={establishment}
           />
-          <div className="flex flex-col flex-1 min-w-0 4xl:h-screen 4xl:overflow-y-auto">
+          <div className="relative isolate flex flex-col flex-1 min-w-0 4xl:h-screen 4xl:overflow-y-auto">
+            {/* Hero image behind the header and widget cards, fading into the solid background. */}
+            <div
+              aria-hidden="true"
+              className="dashboard-hero pointer-events-none absolute inset-x-0 top-0 -z-10 h-[300px] bg-cover bg-center max-md:h-[380px] dark:opacity-60"
+              style={{ backgroundImage: `url("${dashboardHeroImage}")` }}
+            />
             <div className="4xl:hidden">
               <AppHeader
                 authenticated={sessionState.authenticated}
@@ -2359,7 +2367,7 @@ function App() {
                 </div>
               </div>
             ) : null}
-            <div className="flex-1 min-h-0 4xl:flex-none 4xl:min-h-0 bg-bg">
+            <div className="flex-1 min-h-0 4xl:flex-none 4xl:min-h-0">
               <WidgetContainer
                 userName={sessionState.givenName ?? sessionState.user}
                 isSessionReady={!sessionState.checking}
