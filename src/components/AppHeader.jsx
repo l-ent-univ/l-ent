@@ -22,7 +22,7 @@ function AppHeader({ authenticated, checking, onPrimaryAction, onAccountAction }
 
               <button
                 type="button"
-                className="header-logout-btn inline-flex items-center justify-center gap-2 px-3 py-2 border-0 rounded-full bg-transparent text-text-muted text-[0.9rem] font-medium leading-[1.06] whitespace-nowrap cursor-pointer transition-opacity duration-120 ease-in-out hover:opacity-70 disabled:opacity-40 disabled:cursor-wait max-md:w-[42px] max-md:min-w-[42px] max-md:h-[42px] max-md:p-0 max-md:justify-center max-md:gap-0 max-md:border max-md:border-white max-md:bg-widget-bg max-md:text-text dark:max-md:border-[rgba(255,255,255,0.08)]"
+                className="header-logout-btn inline-flex items-center justify-center gap-2 px-3 py-[10px] border border-white dark:border-[rgba(255,255,255,0.08)] rounded-full bg-widget-bg text-text-secondary text-[0.9rem] font-medium leading-[1.06] whitespace-nowrap cursor-pointer transition-[background-color,opacity] duration-120 ease-in-out hover:not-disabled:bg-bg-subtle disabled:opacity-40 disabled:cursor-wait max-md:w-[42px] max-md:min-w-[42px] max-md:h-[42px] max-md:p-0 max-md:justify-center max-md:gap-0 max-md:text-text"
                 onClick={onPrimaryAction}
                 disabled={checking}
                 aria-label={actionLabel}

@@ -3,9 +3,7 @@ import { useState } from 'react'
 import { Icon } from '@iconify/react'
 import universityConfig from '@university'
 import universityShowcase from '../../universities/showcase.js'
-import lentLogoWhite from '../assets/login/lentlogo_white.svg'
-import lentLogoAlez from '../assets/login/lentlogo_alez.svg'
-import lentLogoAlezDark from '../assets/login/lentlogo_alez_dark.svg'
+import lentLogo from '../assets/lent-logo.svg'
 import toutaticeLoginHero from '../assets/login/toutatice-login-hero.webp'
 import toutaticeClouds from '../assets/login/toutatice-clouds.webp'
 import LentButton from './LentButton'
@@ -75,10 +73,10 @@ function LoginPage({
 
         <div className="relative z-10 ml-10 flex w-[381px] max-w-[calc(100%_-_80px)] flex-col items-start gap-5 pt-10 max-3xl:ml-8 max-3xl:max-w-[calc(100%_-_64px)]">
           <img
-            className="block h-[66px] w-[120px] object-contain"
-            src={lentLogoWhite}
+            className="block h-[66px] w-auto object-contain"
+            src={lentLogo}
             alt="L'ent"
-            width="120"
+            width="118"
             height="66"
           />
           <div className="flex w-full flex-col items-start gap-[10px] text-[#f5f3ed]">
@@ -136,13 +134,8 @@ function LoginPage({
               {/* The left panel (and its l'ent logo) is hidden below 4xl, so
                   show the logo above the university one there instead. */}
               <img
-                className="hidden h-9 w-auto object-contain max-4xl:block max-4xl:dark:hidden"
-                src={lentLogoAlez}
-                alt="L'ent"
-              />
-              <img
-                className="hidden h-9 w-auto object-contain max-4xl:dark:block"
-                src={lentLogoAlezDark}
+                className="hidden h-11 w-auto object-contain max-4xl:block"
+                src={lentLogo}
                 alt="L'ent"
               />
               <img
