@@ -14,12 +14,11 @@ import {
   positionGradeTooltipFromPointer,
 } from '../gradeFeatureState'
 
-const CARD_CLASSES = 'average-grade-widget widget-card shadow-md flex-[0_1_220px] h-[148px] p-5 border rounded-[1.75rem] overflow-hidden text-base leading-6 min-w-0 max-2xl:flex-[1_1_calc(50%-7px)] max-2xl:min-w-0 max-md:h-[132px] max-md:p-4 max-md:rounded-3xl relative'
+const CARD_CLASSES = 'average-grade-widget widget-card shadow-md flex-[0_1_220px] h-[140px] p-4 border rounded-[22px] overflow-hidden text-base leading-6 min-w-0 max-2xl:flex-[1_1_calc(50%-6px)] max-2xl:min-w-0 max-md:h-[124px] max-md:p-3 max-md:rounded-[20px] relative'
 
 function AverageGradeHeader() {
   return (
     <div className="flex items-center gap-[5px] min-w-0">
-      <Icon icon="carbon:chart-average" className="w-[17px] h-[17px] shrink-0" aria-hidden="true" />
       <span className="m-0 min-w-0 leading-[1.06] text-base font-medium overflow-hidden text-ellipsis whitespace-nowrap max-md:text-[15px]">Moyenne Générale</span>
     </div>
   )
@@ -55,7 +54,7 @@ function DisabledWidgetAverageGrade({ visible }) {
 
   return (
     <article
-      className={`${CARD_CLASSES} grade-feature-disabled ${visible ? 'widget-card-visible delay-[280ms]' : ''}`}
+      className={`${CARD_CLASSES} grade-feature-disabled ${visible ? 'widget-card-visible' : ''}`}
       aria-label={`Moyenne générale indisponible: ${GRADES_UNAVAILABLE_MESSAGE}`}
       aria-disabled="true"
       tabIndex={0}
@@ -109,7 +108,7 @@ function LiveWidgetAverageGrade({ visible }) {
 
   return (
     <article
-      className={`${CARD_CLASSES} border-white bg-widget-bg flex flex-col gap-[6px] text-text ${canOpen ? 'cursor-pointer' : ''} ${visible ? 'widget-card-visible delay-[280ms]' : ''}`}
+      className={`${CARD_CLASSES} border-white bg-widget-bg flex flex-col gap-[6px] text-text ${canOpen ? 'cursor-pointer' : ''} ${visible ? 'widget-card-visible' : ''}`}
       aria-label={`Moyenne générale: ${avgDisplay} sur 20${promoDisplay ? ` (promo: ${promoDisplay})` : ''}`}
       role={canOpen ? 'link' : undefined}
       tabIndex={canOpen ? 0 : undefined}

@@ -10,7 +10,7 @@ function AppHeader({ authenticated, checking, onPrimaryAction, onAccountAction }
       : 'Se connecter'
 
   return (
-    <header className="w-full pt-10 px-10 max-xl:pt-6 max-md:pt-5 max-md:px-4">
+    <header className="w-full pt-5 px-6 max-xl:pt-4 max-md:pt-3 max-md:px-3">
       <div className="w-full flex items-center justify-between gap-6 max-xl:gap-[0.9rem] max-md:items-start max-md:gap-3">
         <a className="inline-flex items-center no-underline min-w-0 max-md:self-start" href="/" aria-label="Retour à l'accueil">
           <UniversityLockup variant="header" />
@@ -22,7 +22,7 @@ function AppHeader({ authenticated, checking, onPrimaryAction, onAccountAction }
 
               <button
                 type="button"
-                className="header-logout-btn inline-flex items-center justify-center gap-2 px-3 py-2 border-0 rounded-full bg-transparent text-text-muted text-[0.9rem] font-medium leading-[1.06] whitespace-nowrap cursor-pointer transition-opacity duration-120 ease-in-out hover:opacity-70 disabled:opacity-40 disabled:cursor-wait max-md:w-[42px] max-md:min-w-[42px] max-md:h-[42px] max-md:p-0 max-md:justify-center max-md:gap-0"
+                className="header-logout-btn inline-flex items-center justify-center gap-2 px-3 py-[10px] border border-white dark:border-[rgba(255,255,255,0.08)] rounded-full bg-widget-bg text-text-secondary text-[0.9rem] font-medium leading-[1.06] whitespace-nowrap cursor-pointer transition-[background-color,opacity] duration-120 ease-in-out hover:not-disabled:bg-bg-subtle disabled:opacity-40 disabled:cursor-wait max-md:w-[42px] max-md:min-w-[42px] max-md:h-[42px] max-md:p-0 max-md:justify-center max-md:gap-0 max-md:text-text"
                 onClick={onPrimaryAction}
                 disabled={checking}
                 aria-label={actionLabel}

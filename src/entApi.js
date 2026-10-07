@@ -304,11 +304,128 @@ export async function getPlanning() {
   return parseJsonPayload(response)
 }
 
+// Recent inbox messages for the "Mails récents" widget.
+// Server contract (GET /__ent_auth/mail/recent):
+//   200 { authenticated: true, sessionMode, mail: {
+//          unreadCount: number | null,
+//          webmailHref: string | null,
+//          messages: [{ id, from: { name, email }, subject, snippet,
+//                       receivedAt (ISO 8601), unread: boolean, href: string | null }],
+//        } }
+//   200 { authenticated: false, mail: null }   no session
+//   404 { ok: false, disabled: true, feature: 'mail' }   feature off for this university
+//   500 { error }
+// Normalized here to { status: 'ok' | 'disabled' | 'unauthenticated' | 'error', ... }.
+export async function getRecentMail() {
+  if (!universityConfig.features?.mail) {
+    return { status: 'disabled', unreadCount: null, webmailHref: null, messages: [] }
+  }
+
+  try {
+    const response = await fetch(`${ENT_AUTH_PREFIX}/mail/recent`, {
+      credentials: 'same-origin',
+    })
+    const payload = await response.json().catch(() => null)
+
+    if (payload?.disabled) {
+      return { status: 'disabled', unreadCount: null, webmailHref: null, messages: [] }
+    }
+
+    if (!response.ok || !payload) {
+      throw new Error(payload?.error || `Mail request failed (${response.status}).`)
+    }
+
+    if (!payload.authenticated || !payload.mail) {
+      return { status: 'unauthenticated', unreadCount: null, webmailHref: null, messages: [] }
+    }
+
+    return {
+      status: 'ok',
+      unreadCount: Number.isFinite(payload.mail.unreadCount) ? payload.mail.unreadCount : null,
+      webmailHref: payload.mail.webmailHref ?? null,
+      messages: Array.isArray(payload.mail.messages) ? payload.mail.messages : [],
+    }
+  } catch (error) {
+    return {
+      status: 'error',
+      unreadCount: null,
+      webmailHref: null,
+      messages: [],
+      error: error instanceof Error ? error.message : String(error),
+    }
+  }
+}
+
 const GRADES_CACHE_KEY = 'l-ent:grades-cache'
 
-export async function getGrades({ force = false } = {}) {
-  void force
+// Upcoming Moodle deadlines for the "Échéances Moodle" widget.
+// Server contract (GET /__ent_auth/moodle/deadlines):
+//   200 { authenticated: true, sessionMode, deadlines: {
+//          moodleHref: string | null,          // opens Moodle (dashboard/calendar)
+//          items: [{ id, title, courseName, dueAt (ISO 8601),
+//                    type: 'assign' | 'quiz' | 'forum' | 'other',
+//                    overdue: boolean, submitted: boolean | null,
+//                    href: string | null }],    // soonest first, ~6 max
+//        } }
+//   200 { authenticated: false, deadlines: null }   no session
+//   404 { ok: false, disabled: true, feature: 'moodleDeadlines' }
+//   500 { error }
+// Normalized here to { status: 'ok' | 'disabled' | 'unauthenticated' | 'error', ... }.
+export async function getMoodleDeadlines() {
+  const empty = { moodleHref: null, items: [] }
 
+  if (!universityConfig.features?.moodleDeadlines) {
+    return { status: 'disabled', ...empty }
+  }
+
+  try {
+    const response = await fetch(`${ENT_AUTH_PREFIX}/moodle/deadlines`, {
+      credentials: 'same-origin',
+    })
+    const payload = await response.json().catch(() => null)
+
+    if (payload?.disabled) {
+      return { status: 'disabled', ...empty }
+    }
+
+    if (!response.ok || !payload) {
+      throw new Error(payload?.error || `Moodle request failed (${response.status}).`)
+    }
+
+    if (!payload.authenticated || !payload.deadlines) {
+      return { status: 'unauthenticated', ...empty }
+    }
+
+    return {
+      status: 'ok',
+      moodleHref: payload.deadlines.moodleHref ?? null,
+      items: Array.isArray(payload.deadlines.items) ? payload.deadlines.items : [],
+    }
+  } catch (error) {
+    return {
+      status: 'error',
+      ...empty,
+      error: error instanceof Error ? error.message : String(error),
+    }
+  }
+}
+
+// App bootstrap, the latest-grade widget and the sidebar pockets all ask for
+// grades on load: share one in-flight request instead of hitting ScoDoc N times.
+let gradesInflight = null
+
+export function getGrades({ force = false } = {}) {
+  if (!force && gradesInflight) {
+    return gradesInflight
+  }
+
+  gradesInflight = requestGrades().finally(() => {
+    gradesInflight = null
+  })
+  return gradesInflight
+}
+
+async function requestGrades() {
   if (!universityConfig.features?.grades) {
     return {
       authenticated: false,

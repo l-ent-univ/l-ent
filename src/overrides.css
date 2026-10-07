@@ -1,18 +1,60 @@
-/* ── Widget card box-shadow & dark mode border overrides ── */
+/* ── Widget card base: frosted glass over the hero photo ──
+   Every card paints its background with --color-widget-bg (and hovers with
+   --color-bg-subtle), so redefining both here makes all of them translucent
+   and tinted, with the photo blurred behind. */
 
 .widget-card {
+  --color-widget-bg: rgb(252 251 248 / 0.66);
+  --color-bg-subtle: rgb(252 251 248 / 0.84);
+  border-color: rgb(255 255 255 / 0.65);
+  -webkit-backdrop-filter: blur(20px) saturate(1.5);
+  backdrop-filter: blur(20px) saturate(1.5);
+  /* Intro: cards rise and settle from a slightly smaller scale, staggered in
+     reading order via --widget-delay (set per widget below). Hover colour
+     changes stay instant-ish and undelayed. */
+  --widget-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --widget-delay: 0ms;
   opacity: 0;
-  transform: translateX(-16px);
-  transition-property: opacity, transform;
-  transition-duration: 320ms;
-  transition-timing-function: ease;
+  transform: translateY(10px) scale(0.965);
+  transform-origin: 50% 80%;
+  transition-property: opacity, transform, background-color;
+  transition-duration: 560ms, 900ms, 150ms;
+  transition-timing-function: var(--widget-ease), var(--widget-ease), ease;
+  transition-delay: var(--widget-delay), var(--widget-delay), 0ms;
   will-change: opacity, transform;
 }
 
 @media (prefers-color-scheme: dark) {
   .widget-card {
+    --color-widget-bg: rgb(24 24 24 / 0.6);
+    --color-bg-subtle: rgb(38 38 38 / 0.74);
     border-color: rgba(255, 255, 255, 0.08);
   }
+}
+
+/* ── Sidebar: floating frosted panel ── */
+
+.sidebar-panel {
+  background-color: rgb(245 243 236 / 0.6);
+  border-color: rgb(255 255 255 / 0.6);
+  -webkit-backdrop-filter: blur(24px) saturate(1.5);
+  backdrop-filter: blur(24px) saturate(1.5);
+  box-shadow: 0 12px 40px -16px rgb(52 18 0 / 0.22);
+}
+
+@media (prefers-color-scheme: dark) {
+  .sidebar-panel {
+    background-color: rgb(20 20 20 / 0.55);
+    border-color: rgb(255 255 255 / 0.08);
+    box-shadow: 0 12px 40px -16px rgb(0 0 0 / 0.6);
+  }
+}
+
+/* ── Dashboard hero image fade ── */
+
+.dashboard-hero {
+  -webkit-mask-image: linear-gradient(to bottom, rgb(0 0 0 / 0.85) 0%, rgb(0 0 0 / 0.6) 70%, transparent 100%);
+  mask-image: linear-gradient(to bottom, rgb(0 0 0 / 0.85) 0%, rgb(0 0 0 / 0.6) 70%, transparent 100%);
 }
 
 /* ── Primary button depth ── */
@@ -543,7 +585,7 @@
 
 .widget-card-visible {
   opacity: 1;
-  transform: translateX(0);
+  transform: none;
 }
 
 /* ── Context menu transform-origin from CSS variables ── */
@@ -559,10 +601,7 @@
   background-color: var(--color-widget-bg);
   background-image: var(--class-gradient, none);
   background-repeat: no-repeat;
-  transition-property: opacity, transform, background-color;
-  transition-duration: 320ms, 320ms, 150ms;
-  transition-delay: 280ms, 280ms, 0ms;
-  transition-timing-function: ease;
+  --widget-delay: 70ms;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -575,14 +614,11 @@
   background-color: var(--color-bg-subtle);
 }
 
-/* ── Grade widget transition (adds background-color for hover) ── */
+/* ── Grade widget intro order ── */
 
 .latest-grade-widget,
 .average-grade-widget {
-  transition-property: opacity, transform, background-color;
-  transition-duration: 320ms, 320ms, 150ms;
-  transition-delay: 280ms, 280ms, 0ms;
-  transition-timing-function: ease;
+  --widget-delay: 140ms;
 }
 
 /* ── Grade widget hover state ── */
@@ -603,6 +639,180 @@
 .average-grade-widget:hover .grade-corner-arrow,
 .next-class-widget:hover .grade-corner-arrow {
   opacity: 0.45;
+}
+
+/* ── Recent mail widget ── */
+
+.recent-mail-widget {
+  --widget-delay: 210ms;
+}
+
+.recent-mail-widget.cursor-pointer:hover {
+  background-color: var(--color-bg-subtle);
+}
+
+.recent-mail-widget .mail-corner-link {
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+
+.recent-mail-widget:hover .mail-corner-link {
+  opacity: 0.45;
+}
+
+.recent-mail-widget .mail-corner-link:hover,
+.recent-mail-widget .mail-corner-link:focus-visible {
+  opacity: 1;
+}
+
+.mail-unread-dot,
+.mail-unread-pill {
+  background-color: #1a73e8;
+}
+
+.mail-unread-pill {
+  color: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+  .mail-unread-dot,
+  .mail-unread-pill {
+    background-color: #5b9dff;
+  }
+
+  .mail-unread-pill {
+    color: #0f0f0f;
+  }
+}
+
+/* ── Widget row layout with paired list cards ──
+   When both list cards (mail + deadlines) actually render, the row lays out
+   from its own width (sidebar or not) instead of viewport breakpoints. If
+   either renders nothing (no session, feature off server-side), :has() stops
+   matching and the row falls back to the default card flow. These rules are
+   unlayered, so they win over the cards' Tailwind flex utilities.
+   ≥ 1712px : one row, natural card widths (default flex bases).
+   760–1711 : greeting · next class · grade share row 1 in thirds,
+              mail | deadlines share row 2 in halves.
+   496–759  : rows of two (greeting | next class when they fit, grade |
+              mail), then deadlines full width.
+   < 496    : everything stacks (default max-xs utilities). */
+
+.widget-row {
+  container: widget-row / inline-size;
+}
+
+.widget-lists {
+  display: contents;
+}
+
+@container widget-row (min-width: 496px) and (max-width: 759.98px) {
+  /* Greeting | next class in halves when both fit their min widths,
+     stacked otherwise; grade never joins their row. */
+  .widget-row:has(.recent-mail-widget):has(.moodle-deadlines-widget) > .widget-card {
+    flex: 1 1 0;
+    min-width: 260px;
+  }
+
+  .widget-row:has(.recent-mail-widget):has(.moodle-deadlines-widget) .next-class-widget {
+    flex: 1 1 0;
+    min-width: 320px;
+  }
+
+  .widget-row:has(.recent-mail-widget):has(.moodle-deadlines-widget) .latest-grade-widget,
+  .widget-row:has(.recent-mail-widget):has(.moodle-deadlines-widget) .recent-mail-widget {
+    flex: 1 1 calc(50% - 6px);
+    min-width: 0;
+  }
+
+  .widget-row:has(.recent-mail-widget):has(.moodle-deadlines-widget) .moodle-deadlines-widget {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+}
+
+@container widget-row (min-width: 760px) and (max-width: 1711.98px) {
+  .widget-row:has(.recent-mail-widget):has(.moodle-deadlines-widget) > .widget-card,
+  .widget-row:has(.recent-mail-widget):has(.moodle-deadlines-widget) > .contents > .widget-card {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .widget-row:has(.recent-mail-widget):has(.moodle-deadlines-widget) .widget-lists {
+    display: flex;
+    flex: 1 1 100%;
+    gap: 12px;
+    min-width: 0;
+  }
+
+  .widget-row:has(.recent-mail-widget):has(.moodle-deadlines-widget) .widget-lists > .widget-card {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+}
+
+/* ── Moodle deadlines widget ── */
+
+.moodle-deadlines-widget {
+  --widget-delay: 280ms;
+}
+
+.moodle-deadlines-widget.cursor-pointer:hover {
+  background-color: var(--color-bg-subtle);
+}
+
+.moodle-deadlines-widget .deadline-corner-link {
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+
+.moodle-deadlines-widget:hover .deadline-corner-link {
+  opacity: 0.45;
+}
+
+.moodle-deadlines-widget .deadline-corner-link:hover,
+.moodle-deadlines-widget .deadline-corner-link:focus-visible {
+  opacity: 1;
+}
+
+/* Urgency palette: amber = due within 48 h, red = overdue. */
+.deadline-pill {
+  background-color: #f59e0b;
+  color: #2b1600;
+}
+
+.deadline-pill.deadline-pill-overdue {
+  background-color: #dc2626;
+  color: #ffffff;
+}
+
+.deadline-due-soon {
+  color: #b45309;
+}
+
+.deadline-due-overdue {
+  color: var(--color-error);
+}
+
+.deadline-submitted-icon {
+  color: var(--color-success-text);
+  opacity: 0.75;
+}
+
+@media (prefers-color-scheme: dark) {
+  .deadline-pill {
+    background-color: #fbbf24;
+    color: #0f0f0f;
+  }
+
+  .deadline-pill.deadline-pill-overdue {
+    background-color: #f87171;
+    color: #0f0f0f;
+  }
+
+  .deadline-due-soon {
+    color: #fbbf24;
+  }
 }
 
 /* ── Average grade wave dark mode ── */

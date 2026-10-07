@@ -2,8 +2,11 @@ import { useCallback, useEffect, useState } from 'react'
 import { Icon } from '@iconify/react'
 import universityConfig from '@university'
 import AvailableApplications from './AvailableApplications'
+import WidgetDeadlines from './WidgetDeadlines'
 import WidgetLatestGrade from './WidgetLatestGrade'
 import WidgetNextClass from './WidgetNextClass'
+import WidgetRecentMail from './WidgetRecentMail'
+import { isWidgetAvailable } from '../dashboardWidgets'
 import {
   getCurrentLocationWeather,
   getEditableLocationLabel,
@@ -13,10 +16,6 @@ import {
 const WEATHER_CITY_KEY = 'l-ent:weather-city'
 const WEATHER_CONFIG = universityConfig.features?.weather ?? {}
 const DEFAULT_WEATHER_CITY = WEATHER_CONFIG.defaultCity || 'Paris'
-
-function getEstablishmentConfig(establishment) {
-  return universityConfig.establishments?.byId?.[establishment] ?? null
-}
 
 const INITIAL_WEATHER_STATE = {
   summary: 'Chargement météo...',
@@ -204,8 +203,9 @@ function WidgetContainer({
   nextClassLookaheadDays = undefined,
   debugNextClass = false,
   canUseServerLaunch = true,
-  hideNextClass = false,
-  hideGradeWidgets = false,
+  hiddenWidgets = [],
+  onDismissGreeting,
+  showAppDescriptions = false,
   favoritesPortalTarget = null,
 }) {
   const displayName = userName?.trim() || ' '
@@ -348,17 +348,37 @@ function WidgetContainer({
   }, [locationQuery])
 
   const isLocationActionDisabled = isWeatherLoading
+  const isShown = (widgetId) => isWidgetAvailable(widgetId, establishment) && !hiddenWidgets.includes(widgetId)
+  const showGreeting = !hiddenWidgets.includes('greeting')
+  const showNextClass = debugNextClass || isShown('nextClass')
+  const showGradeWidgets = isShown('latestGrade')
+  const showMailWidget = isShown('mail')
+  const showDeadlinesWidget = isShown('deadlines')
+  const pairListWidgets = showMailWidget && showDeadlinesWidget
 
   return (
-    <section className="w-full grid gap-8 pt-6 px-10 pb-10 max-md:px-4 max-md:pt-4 max-md:pb-8 max-md:gap-6" aria-label="Widgets">
-      <div className="flex flex-wrap gap-5 items-stretch max-2xl:gap-[14px] max-md:gap-[10px] overflow-visible p-2 -m-2">
-        <article className={`widget-card shadow-md flex-[0_1_280px] min-h-[148px] p-5 border border-white rounded-[1.75rem] overflow-hidden bg-widget-bg text-base leading-6 min-w-0 max-2xl:flex-[1_1_calc(50%-7px)] max-2xl:min-w-[min(280px,100%)] max-md:min-h-[132px] max-md:p-4 max-md:rounded-3xl max-xs:flex-[1_1_calc(50%-5px)] max-xs:min-w-0 flex flex-col justify-end gap-1 text-text ${areWidgetsVisible ? 'widget-card-visible delay-[80ms]' : ''}`}>
+    <section className="w-full grid gap-10 pt-4 px-6 pb-6 4xl:pt-5 max-md:px-3 max-md:pt-3 max-md:pb-5 max-md:gap-8" aria-label="Widgets">
+      <div className="widget-row flex flex-wrap gap-3 items-stretch max-md:gap-2 overflow-visible p-2 -m-2">
+        {showGreeting ? (
+        <article className={`widget-card group relative shadow-md flex-[0_1_280px] min-h-[140px] p-4 border border-white rounded-[22px] overflow-hidden bg-widget-bg text-base leading-6 min-w-0 max-2xl:flex-[1_1_calc(50%-6px)] max-2xl:min-w-[min(280px,100%)] max-md:min-h-[124px] max-md:p-3 max-md:rounded-[20px] max-xs:flex-[1_1_calc(50%-4px)] max-xs:min-w-0 flex flex-col justify-end gap-1 text-text ${areWidgetsVisible ? 'widget-card-visible' : ''}`}>
           <Icon icon="ph:hand-waving" className="greeting-icon w-[34px] h-[34px] text-inherit shrink-0" aria-hidden="true" />
           <h2 className="m-0 min-w-0 leading-[1.15] text-2xl font-bold overflow-hidden text-ellipsis whitespace-nowrap max-md:text-[22px]" title={`Salut ${displayName} !`}>Salut {displayName} !</h2>
           <p className="m-0 leading-[1.2] text-[15px] font-medium line-clamp-2" title={greetingSubtitle}>{greetingSubtitle}</p>
+          {typeof onDismissGreeting === 'function' ? (
+            <button
+              type="button"
+              className="absolute top-2.5 right-2.5 inline-flex items-center justify-center w-7 h-7 p-0 border-0 rounded-full bg-transparent text-text-muted opacity-0 cursor-pointer transition-[opacity,background-color,color] duration-[120ms] ease-in-out hover:bg-brand-subtle hover:text-text group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
+              onClick={onDismissGreeting}
+              aria-label="Masquer la carte de bienvenue"
+              title="Masquer (réactivable dans Mon compte)"
+            >
+              <Icon icon="carbon:close" className="w-4 h-4" aria-hidden="true" />
+            </button>
+          ) : null}
         </article>
+        ) : null}
 
-        {!hideNextClass && (getEstablishmentConfig(establishment)?.nextClassWidget || debugNextClass) ? (
+        {showNextClass ? (
           <div id="sidebar-section-planning" className="contents">
             <WidgetNextClass
               visible={areWidgetsVisible}
@@ -369,11 +389,31 @@ function WidgetContainer({
             />
           </div>
         ) : null}
-        {!hideGradeWidgets && Boolean(universityConfig.features?.grades) && getEstablishmentConfig(establishment)?.gradeWidgets ? (
-          <div id="sidebar-section-grades" className="flex-[1_1_100%] min-w-0 flex items-stretch gap-5 max-2xl:gap-[14px] max-md:gap-[10px] 2xl:contents">
+        {showGradeWidgets || showMailWidget || showDeadlinesWidget ? (
+          // Below 2xl the grade and list card share their own row; from 2xl
+          // the wrapper dissolves (display: contents) into the widget row.
+          // empty:hidden covers the list card rendering nothing (no session).
+          // With both mail and deadlines, the wrappers always dissolve and the
+          // layout follows the row width instead ("Widget row layout with
+          // paired list cards" in overrides.css).
+          <div
+            id={showGradeWidgets ? 'sidebar-section-grades' : undefined}
+            className={pairListWidgets ? 'contents' : 'flex-[1_1_100%] min-w-0 flex flex-wrap items-stretch gap-3 max-md:gap-2 empty:hidden 2xl:contents'}
+          >
             {/* Bloc « Moyenne Générale » masqué pour l'instant — réimporter
                 WidgetAverageGrade et le rendre ici pour le réactiver. */}
-            <WidgetLatestGrade visible={areWidgetsVisible} />
+            {showGradeWidgets ? <WidgetLatestGrade visible={areWidgetsVisible} /> : null}
+            {pairListWidgets ? (
+              <div className="widget-lists">
+                <WidgetRecentMail visible={areWidgetsVisible} />
+                <WidgetDeadlines visible={areWidgetsVisible} />
+              </div>
+            ) : (
+              <>
+                {showMailWidget ? <WidgetRecentMail visible={areWidgetsVisible} /> : null}
+                {showDeadlinesWidget ? <WidgetDeadlines visible={areWidgetsVisible} /> : null}
+              </>
+            )}
           </div>
         ) : null}
       </div>
@@ -383,6 +423,7 @@ function WidgetContainer({
           establishment={establishment}
           canUseServerLaunch={canUseServerLaunch}
           favoritesPortalTarget={favoritesPortalTarget}
+          showDescriptions={showAppDescriptions}
         />
       </div>
 

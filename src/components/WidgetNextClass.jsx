@@ -372,12 +372,6 @@ function getStatusCopy(widgetState, lookaheadDays = NEXT_CLASS_LOOKAHEAD_DAYS) {
         icon: 'carbon:calendar-settings',
         action: 'Ouvrir l\'emploi du temps',
       }
-    case 'error':
-      return {
-        title: 'Planning indisponible',
-        body: widgetState.errorMessage || 'Réessaie dans quelques instants.',
-        icon: 'carbon:warning-alt',
-      }
     default:
       return {
         title: 'Prochain cours',
@@ -786,7 +780,7 @@ function WidgetNextClass({
   const exactDateLabel = formatExactDateLabel(nextClass?.start)
   const shouldShowExactDateTooltip = Boolean(exactDateLabel && timeLabel && timeLabel !== 'En cours')
   const statusCopy = getStatusCopy(widgetState, lookaheadDays)
-  const isStatusWide = ['unconfigured', 'limited', 'empty', 'paused', 'error'].includes(widgetState.status)
+  const isStatusWide = ['unconfigured', 'limited', 'empty', 'paused'].includes(widgetState.status)
   const openAdePlanning = useCallback(() => {
     if (!ADE_HREF) {
       return
@@ -794,10 +788,6 @@ function WidgetNextClass({
 
     window.open(ADE_HREF, '_blank', 'noopener,noreferrer')
   }, [])
-  const handleRetry = useCallback((event) => {
-    event.stopPropagation()
-    void loadNextClass()
-  }, [loadNextClass])
   const handleKeyDown = useCallback((event) => {
     if (event.key !== 'Enter' && event.key !== ' ') {
       return
@@ -807,9 +797,15 @@ function WidgetNextClass({
     openAdePlanning()
   }, [openAdePlanning])
 
+  // Hidden when the planning can't be loaded; the background refresh brings
+  // the card back once ADE answers again.
+  if (widgetState.status === 'error') {
+    return null
+  }
+
   return (
     <article
-      className={`next-class-widget widget-card relative z-0 hover:z-10 shadow-md flex-[0_1_190px] h-[148px] p-5 border border-white rounded-[1.75rem] overflow-visible text-base leading-6 min-w-0 max-2xl:flex-[1_1_calc(50%-7px)] max-2xl:min-w-[min(320px,100%)] max-md:h-[140px] max-md:p-4 max-md:rounded-3xl max-xs:flex-[1_1_100%] max-xs:min-w-0 flex flex-col gap-[6px] text-text cursor-pointer ${wide ? '2xl:flex-[0_1_380px]' : isStatusWide ? '2xl:flex-[0_1_300px]' : ''} ${visible ? 'widget-card-visible delay-[80ms]' : ''}`}
+      className={`next-class-widget widget-card relative z-0 hover:z-10 shadow-md flex-[0_1_190px] h-[140px] p-4 border border-white rounded-[22px] overflow-visible text-base leading-6 min-w-0 max-2xl:flex-[1_1_calc(50%-6px)] max-2xl:min-w-[min(320px,100%)] max-md:h-[132px] max-md:p-3 max-md:rounded-[20px] max-xs:flex-[1_1_100%] max-xs:min-w-0 flex flex-col gap-[6px] text-text cursor-pointer ${wide ? '2xl:flex-[0_1_380px]' : isStatusWide ? '2xl:flex-[0_1_300px]' : ''} ${visible ? 'widget-card-visible' : ''}`}
       style={{ '--class-gradient': classGradient, '--class-gradient-dark': classGradientDark }}
       aria-label="Prochain cours, ouvrir ADE"
       onClick={openAdePlanning}
@@ -817,9 +813,8 @@ function WidgetNextClass({
       role="link"
       tabIndex={0}
     >
-      <Icon icon="carbon:arrow-up-right" className="grade-corner-arrow absolute top-[14px] right-[14px] w-[14px] h-[14px] text-text opacity-0 transition-opacity duration-150 ease-in-out shrink-0" aria-hidden="true" />
+      <Icon icon="carbon:arrow-up-right" className="grade-corner-arrow absolute top-3 right-3 w-[14px] h-[14px] text-text opacity-0 transition-opacity duration-150 ease-in-out shrink-0" aria-hidden="true" />
       <div className="flex items-center gap-[5px] min-w-0">
-        <Icon icon="carbon:calendar" className="w-[17px] h-[17px] shrink-0 text-text" aria-hidden="true" />
         <span className="m-0 min-w-0 leading-[1.06] text-base font-medium overflow-hidden text-ellipsis whitespace-nowrap max-md:text-[15px]">Prochain cours</span>
       </div>
 
@@ -891,17 +886,7 @@ function WidgetNextClass({
             {statusCopy.body ? (
               <p className="m-0 text-sm leading-[1.35] opacity-70 line-clamp-2" title={statusCopy.body}>{statusCopy.body}</p>
             ) : null}
-            {widgetState.status === 'error' ? (
-              <button
-                type="button"
-                className="self-start inline-flex items-center gap-[5px] min-h-[26px] px-[10px] border border-border-input rounded-full bg-bg-input text-text text-[13px] font-semibold leading-none transition-[background-color] duration-[120ms] ease-in-out hover:bg-bg-subtle"
-                onClick={handleRetry}
-                onKeyDown={(event) => event.stopPropagation()}
-              >
-                <Icon icon="carbon:restart" className="w-[13px] h-[13px] shrink-0" aria-hidden="true" />
-                Réessayer
-              </button>
-            ) : statusCopy.action ? (
+            {statusCopy.action ? (
               <span className="inline-flex items-center gap-1 text-[13px] font-semibold opacity-80">
                 {statusCopy.action}
                 <Icon icon="carbon:arrow-up-right" className="w-[13px] h-[13px] shrink-0" aria-hidden="true" />

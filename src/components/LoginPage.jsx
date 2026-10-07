@@ -3,11 +3,8 @@ import { useState } from 'react'
 import { Icon } from '@iconify/react'
 import universityConfig from '@university'
 import universityShowcase from '../../universities/showcase.js'
-import lentLogoWhite from '../assets/login/lentlogo_white.svg'
-import lentLogoAlez from '../assets/login/lentlogo_alez.svg'
-import lentLogoAlezDark from '../assets/login/lentlogo_alez_dark.svg'
+import lentLogo from '../assets/lent-logo.svg'
 import toutaticeLoginHero from '../assets/login/toutatice-login-hero.webp'
-import toutaticeClouds from '../assets/login/toutatice-clouds.webp'
 import LentButton from './LentButton'
 import AboutModal from './AboutModal'
 
@@ -75,10 +72,10 @@ function LoginPage({
 
         <div className="relative z-10 ml-10 flex w-[381px] max-w-[calc(100%_-_80px)] flex-col items-start gap-5 pt-10 max-3xl:ml-8 max-3xl:max-w-[calc(100%_-_64px)]">
           <img
-            className="block h-[66px] w-[120px] object-contain"
-            src={lentLogoWhite}
+            className="block h-[66px] w-auto object-contain"
+            src={lentLogo}
             alt="L'ent"
-            width="120"
+            width="118"
             height="66"
           />
           <div className="flex w-full flex-col items-start gap-[10px] text-[#f5f3ed]">
@@ -96,31 +93,6 @@ function LoginPage({
       />
 
       <div className="relative isolate flex min-h-screen min-w-0 flex-[1_1_auto] items-stretch justify-center bg-[#f5f3ed] dark:bg-bg max-4xl:w-full max-md:justify-start">
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-[416px] overflow-hidden" aria-hidden="true">
-          {/* Centered without translate: a transform would create a stacking
-              context and break the clouds' soft-light blend with the page bg. */}
-          <div className="absolute left-[calc(50%_-_376px)] top-0 h-[416px] w-[752px]">
-            {/* Each cloud is stacked twice: soft-light alone is too faint,
-                doubling the layer deepens the blend. */}
-            {[0, 1].map((layer) => (
-              <img
-                key={`right-${layer}`}
-                className="absolute left-[240px] top-[-92px] aspect-[1920/1292] w-[670px] max-w-none object-cover [mix-blend-mode:soft-light] dark:[mix-blend-mode:overlay] opacity-87"
-                src={toutaticeClouds}
-                alt=""
-              />
-            ))}
-            {[0, 1].map((layer) => (
-              <img
-                key={`left-${layer}`}
-                className="absolute left-[-298px] top-[-35px] aspect-[1920/1292] w-[670px] max-w-none -scale-x-100 object-cover [mix-blend-mode:soft-light] dark:[mix-blend-mode:overlay] opacity-87"
-                src={toutaticeClouds}
-                alt=""
-              />
-            ))}
-          </div>
-        </div>
-
         <button
           type="button"
           className="absolute top-6 right-6 z-30 inline-flex h-[38px] w-[38px] items-center justify-center rounded-full border-0 bg-transparent text-text-muted transition-colors duration-120 hover:text-text max-3xl:top-5 max-3xl:right-5 max-md:top-4 max-md:right-4"
@@ -136,13 +108,8 @@ function LoginPage({
               {/* The left panel (and its l'ent logo) is hidden below 4xl, so
                   show the logo above the university one there instead. */}
               <img
-                className="hidden h-9 w-auto object-contain max-4xl:block max-4xl:dark:hidden"
-                src={lentLogoAlez}
-                alt="L'ent"
-              />
-              <img
-                className="hidden h-9 w-auto object-contain max-4xl:dark:block"
-                src={lentLogoAlezDark}
+                className="hidden h-11 w-auto object-contain max-4xl:block"
+                src={lentLogo}
                 alt="L'ent"
               />
               <img

@@ -1,7 +1,7 @@
 // Université de Rennes — server-side configuration.
 // Never imported by client code: holds origins, auth-flow parameters and the
 // reverse-engineered ADE mobile-app credentials.
-import { id, casOrigin, entOrigin, features, gradesCopy, gradesOrigin, planningServiceUrl, portalEntryPath } from './shared.js'
+import { id, casOrigin, entOrigin, features, gradesCopy, gradesOrigin, mailWebmailUrl, planningServiceUrl, portalEntryPath } from './shared.js'
 
 export default {
   id,
@@ -27,6 +27,10 @@ export default {
     // Shibboleth WAYF entity id used to pre-select the university on the
     // federation discovery page.
     wayfEntityId: 'urn:mace:cru.fr:federation:univ-rennes1.fr',
+    // "Échéances Moodle" widget (features.moodleDeadlines): hosts the
+    // server-side SAML sign-in chain may visit, besides Moodle and CAS
+    // (the university WAYF and Shibboleth IdP). HTTPS only.
+    signInDomains: ['wayf.univ-rennes.fr', 'ident-shib.univ-rennes1.fr'],
   },
 
   // Credentials of the official "Campus" mobile app, required by the ADE
@@ -61,5 +65,18 @@ export default {
   grades: {
     ...gradesCopy,
     origin: gradesOrigin,
+  },
+
+  // "Mails récents" widget (features.mail). The server signs in to the
+  // webmail with the user's CAS session and reads the inbox via the
+  // provider API. Only 'zimbra' is implemented (see server/entAuthApp.js).
+  mail: {
+    provider: 'zimbra',
+    origin: 'https://partage.univ-rennes.fr',
+    webmailUrl: mailWebmailUrl,
+    maxMessages: 5,
+    // Hosts the SAML sign-in chain may visit, besides the webmail and CAS
+    // hosts (RENATER's Partage SP and the university IdP).
+    signInDomains: ['partage.renater.fr', 'univ-rennes1.fr', 'univ-rennes.fr'],
   },
 }

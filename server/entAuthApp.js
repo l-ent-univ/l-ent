@@ -30,7 +30,9 @@ import {
   buildDemoGradesPayload,
   buildDemoLayoutData,
   buildDemoLayoutDocData,
+  buildDemoMailPayload,
   buildDemoMarketplaceEntries,
+  buildDemoMoodleDeadlinesPayload,
   buildDemoPlanningPayload,
   buildDemoPortletFragment,
   buildDemoPortletMetadata,
@@ -57,6 +59,31 @@ const ADE_ORIGIN = universityConfig.origins.ade ?? null
 const MOODLE_ORIGIN = universityConfig.origins.moodle ?? null
 const PLANNING_ORIGIN = universityConfig.origins.planning ?? null
 const GRADES_ORIGIN = universityConfig.grades?.origin ?? null
+// Mail (see universities/<id>/server.js → mail, docs/ADDING_A_UNIVERSITY.md).
+const MAIL_PROVIDER = universityConfig.mail?.provider ?? null
+const MAIL_ORIGIN = universityConfig.mail?.origin ?? null
+const MAIL_WEBMAIL_URL = universityConfig.mail?.webmailUrl ?? MAIL_ORIGIN
+const MAIL_MAX_MESSAGES = Math.min(Math.max(Number(universityConfig.mail?.maxMessages) || 5, 1), 20)
+// Domains the webmail sign-in chain may visit (webmail, SAML SP, IdP, CAS).
+// Anything else — or any non-HTTPS URL — aborts the chain.
+function buildSignInDomains(extraDomains, urls) {
+  return [
+    ...(extraDomains ?? []),
+    ...urls
+      .map((url) => { try { return new URL(url).hostname } catch { return null } })
+      .filter(Boolean),
+  ].map((domain) => String(domain).toLowerCase())
+}
+const MAIL_SIGN_IN_DOMAINS = buildSignInDomains(
+  universityConfig.mail?.signInDomains,
+  [MAIL_ORIGIN, MAIL_WEBMAIL_URL, universityConfig.origins?.cas],
+)
+// Same rule for the Moodle sign-in chain (Moodle, WAYF, SAML IdP, CAS) used by
+// the "Échéances Moodle" widget.
+const MOODLE_SIGN_IN_DOMAINS = buildSignInDomains(
+  universityConfig.moodle?.signInDomains,
+  [universityConfig.origins?.moodle, universityConfig.origins?.cas],
+)
 
 const ENT_HOST = new URL(ENT_ORIGIN).hostname
 const CAS_HOST = new URL(CAS_ORIGIN).hostname
@@ -68,6 +95,29 @@ const PORTAL_ENTRY_URL = `${ENT_ORIGIN}${universityConfig.auth.portalEntryPath}`
 const MOODLE_SHIBBOLETH_LOGIN_URL = MOODLE_ORIGIN
   ? `${MOODLE_ORIGIN}${universityConfig.moodle?.shibbolethLoginPath ?? '/auth/shibboleth/index.php'}`
   : null
+
+// Moodle's Shibboleth entry point supports WAYFless deep links: ?target=<local
+// URL> becomes $SESSION->wantsurl, the SP keeps it as RelayState through the
+// SSO chain, and Moodle redirects there after login — so a launch to an
+// activity page lands on that page instead of the dashboard.
+function buildMoodleShibbolethLoginUrl(targetUrl = null) {
+  if (!MOODLE_SHIBBOLETH_LOGIN_URL || !targetUrl) {
+    return MOODLE_SHIBBOLETH_LOGIN_URL
+  }
+
+  try {
+    const target = new URL(targetUrl)
+    if (target.origin !== MOODLE_ORIGIN || target.pathname === '/' || target.pathname.startsWith('/auth/')) {
+      return MOODLE_SHIBBOLETH_LOGIN_URL
+    }
+
+    const loginUrl = new URL(MOODLE_SHIBBOLETH_LOGIN_URL)
+    loginUrl.searchParams.set('target', target.toString())
+    return loginUrl.toString()
+  } catch {
+    return MOODLE_SHIBBOLETH_LOGIN_URL
+  }
+}
 const WAYF_ENTITY_ID = universityConfig.moodle?.wayfEntityId ?? null
 const DEFAULT_REFERER = PORTAL_ENTRY_URL
 
@@ -77,6 +127,11 @@ function isCasHost(hostname) {
 const LOCAL_SESSION_COOKIE = 'ent_front_session'
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000
 const GRADES_CACHE_TTL_MS = 10 * 60 * 1000
+const MAIL_CACHE_TTL_MS = 2 * 60 * 1000
+const MOODLE_DEADLINES_CACHE_TTL_MS = 5 * 60 * 1000
+// Signed-in Moodle contexts are reused for this long (and dropped earlier if
+// Moodle rejects them), so a widget refresh doesn't replay the SAML chain.
+const MOODLE_CONTEXT_TTL_MS = 60 * 60 * 1000
 const LOGIN_RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000
 const LOGIN_RATE_LIMIT_BLOCK_MS = 15 * 60 * 1000
 const LOGIN_RATE_LIMIT_MAX_ATTEMPTS_PER_IP = 10
@@ -87,6 +142,17 @@ const MAX_PERSISTED_COOKIE_VALUE_LENGTH = 1024
 const SESSION_SECRET = process.env.SESSION_SECRET || 'dev-only-insecure-secret'
 const runtimeSessions = new Map()
 const runtimeGradesCache = new Map()
+// sessionId → { cachedAt, data }: short-lived inbox snapshot.
+const runtimeMailCache = new Map()
+// sessionId → { createdAt, jar, origin, csrfToken }: webmail login context.
+// Kept runtime-only (never persisted in the session cookie) so the IdP/SP/
+// webmail cookies don't bloat the 4 KB session cookie.
+const runtimeMailContexts = new Map()
+// sessionId → { cachedAt, data }: short-lived Moodle deadlines snapshot.
+const runtimeMoodleDeadlinesCache = new Map()
+// sessionId → { createdAt, jar, sesskey }: signed-in Moodle context, runtime-only
+// for the same reason as runtimeMailContexts.
+const runtimeMoodleContexts = new Map()
 const loginRateLimitByIp = new Map()
 const loginRateLimitByUsername = new Map()
 
@@ -231,6 +297,17 @@ class CookieJar {
 
   hasCookie(hostname, cookieName) {
     return this.getCookieNamesForHost(hostname).includes(String(cookieName))
+  }
+
+  getCookieValue(hostname, cookieName) {
+    const cookie = Array.from(this.store.values()).find((entry) => (
+      entry.name === String(cookieName)
+      && (entry.expiresAt === null || entry.expiresAt > Date.now())
+      && (entry.hostOnly
+        ? entry.domain === hostname
+        : hostname === entry.domain || hostname.endsWith(`.${entry.domain}`))
+    ))
+    return cookie?.value ?? null
   }
 
   serialize() {
@@ -420,6 +497,10 @@ function pruneRuntimeSessions() {
     if (!session?.createdAt || now - session.createdAt > SESSION_TTL_MS) {
       runtimeSessions.delete(sessionId)
       runtimeGradesCache.delete(sessionId)
+      runtimeMailCache.delete(sessionId)
+      runtimeMailContexts.delete(sessionId)
+      runtimeMoodleDeadlinesCache.delete(sessionId)
+      runtimeMoodleContexts.delete(sessionId)
     }
   }
 }
@@ -461,6 +542,68 @@ function clearCachedGrades(sessionId) {
   }
 
   runtimeGradesCache.delete(sessionId)
+}
+
+function getCachedMail(sessionId) {
+  if (!sessionId) {
+    return null
+  }
+
+  const entry = runtimeMailCache.get(sessionId)
+  if (!entry || Date.now() - entry.cachedAt > MAIL_CACHE_TTL_MS) {
+    runtimeMailCache.delete(sessionId)
+    return null
+  }
+
+  return entry.data
+}
+
+function setCachedMail(sessionId, mail) {
+  if (!sessionId) {
+    return
+  }
+
+  runtimeMailCache.set(sessionId, { cachedAt: Date.now(), data: mail })
+}
+
+function clearMailCaches(sessionId) {
+  if (!sessionId) {
+    return
+  }
+
+  runtimeMailCache.delete(sessionId)
+  runtimeMailContexts.delete(sessionId)
+}
+
+function getCachedMoodleDeadlines(sessionId) {
+  if (!sessionId) {
+    return null
+  }
+
+  const entry = runtimeMoodleDeadlinesCache.get(sessionId)
+  if (!entry || Date.now() - entry.cachedAt > MOODLE_DEADLINES_CACHE_TTL_MS) {
+    runtimeMoodleDeadlinesCache.delete(sessionId)
+    return null
+  }
+
+  return entry.data
+}
+
+function setCachedMoodleDeadlines(sessionId, deadlines) {
+  if (!sessionId) {
+    return
+  }
+
+  runtimeMoodleDeadlinesCache.set(sessionId, { cachedAt: Date.now(), data: deadlines })
+}
+
+function clearMoodleCaches(sessionId) {
+  if (!sessionId) {
+    return
+  }
+
+  runtimeMoodleDeadlinesCache.delete(sessionId)
+  runtimeMoodleContexts.delete(sessionId)
 }
 
 function setSessionCookie(res, session) {
@@ -699,16 +842,94 @@ async function performEntLogin({ username, password }) {
   }
 }
 
-async function ensureGradesSession(jar) {
+// One ScoDoc sign-in at a time per cookie jar: concurrent doAuth runs (grades
+// widget + profile photo on dashboard load) overwrite each other's PHP session,
+// and the loser's data.php call answers { redirect } instead of grades.
+const gradesAuthInflight = new WeakMap()
+
+function ensureGradesSession(jar) {
   if (!GRADES_ORIGIN) {
-    throw new Error('Grade service is not configured for this university.')
+    return Promise.reject(new Error('Grade service is not configured for this university.'))
+  }
+
+  const inflight = gradesAuthInflight.get(jar)
+  if (inflight) {
+    return inflight
   }
 
   const doAuthUrl = `${GRADES_ORIGIN}/services/doAuth.php?href=${encodeURIComponent(`${GRADES_ORIGIN}/`)}`
-  const result = await followRedirectChain(doAuthUrl, jar, {
+  const promise = followRedirectChain(doAuthUrl, jar, {
     headers: { Accept: 'text/html,application/xhtml+xml,*/*' },
   })
-  await result.response.text()
+    .then((result) => result.response.text())
+    .then(() => undefined)
+    .finally(() => gradesAuthInflight.delete(jar))
+
+  gradesAuthInflight.set(jar, promise)
+  return promise
+}
+
+// data.php answers { redirect: … } (HTTP 200) when the ScoDoc session isn't
+// signed in; only payloads with a relevé or semester list are real grades.
+function isValidGradesPayload(payload) {
+  return Boolean(payload)
+    && typeof payload === 'object'
+    && !payload.redirect
+    && (Boolean(payload['relevé']) || Array.isArray(payload.semestres))
+}
+
+async function requestGradesData(jar) {
+  const dataUrl = `${GRADES_ORIGIN}/services/data.php?q=dataPremi%C3%A8reConnexion`
+  const dataResponse = await fetchWithJar(dataUrl, jar, {
+    headers: {
+      Accept: 'application/json, */*',
+      Referer: `${GRADES_ORIGIN}/`,
+    },
+    redirect: 'follow',
+  })
+  const dataText = await dataResponse.text()
+
+  try {
+    return { ok: dataResponse.ok, status: dataResponse.status, payload: JSON.parse(dataText) }
+  } catch {
+    throw new Error(`ScoDoc returned an invalid response (${dataResponse.status}).`)
+  }
+}
+
+// Signs in to ScoDoc and reads the grades, retrying once with a fresh sign-in
+// when ScoDoc says the session isn't authenticated.
+async function fetchGradesData(jar) {
+  let lastStatus = null
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await ensureGradesSession(jar)
+    const { ok, status, payload } = await requestGradesData(jar)
+    lastStatus = status
+
+    if (ok && isValidGradesPayload(payload)) {
+      return payload
+    }
+
+    if (!payload?.redirect) {
+      break
+    }
+  }
+
+  throw new Error(`ScoDoc grades request failed (${lastStatus}).`)
+}
+
+// Concurrent /grades requests for the same session share one upstream fetch.
+const gradesFetchInflight = new Map()
+
+function fetchGradesDataOnce(session) {
+  const inflight = gradesFetchInflight.get(session.id)
+  if (inflight) {
+    return inflight
+  }
+
+  const promise = fetchGradesData(session.jar).finally(() => gradesFetchInflight.delete(session.id))
+  gradesFetchInflight.set(session.id, promise)
+  return promise
 }
 
 function isGradesStudentPicture(picture) {
@@ -882,11 +1103,11 @@ function parseFormFields(formBody) {
   return Object.fromEntries(new URLSearchParams(formBody))
 }
 
-async function prepareMoodleLaunchRelay(session) {
+async function prepareMoodleLaunchRelay(session, targetUrl = null) {
   const acceptHeader = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
   const launchCapabilities = getSessionLaunchCapabilities(session)
   const chain = []
-  let currentUrl = MOODLE_SHIBBOLETH_LOGIN_URL
+  let currentUrl = buildMoodleShibbolethLoginUrl(targetUrl)
   let currentMethod = 'GET'
   let currentBody = undefined
   let currentHeaders = { Accept: acceptHeader }
@@ -1355,6 +1576,8 @@ function clearSensitiveSessionCaches(session) {
   const cacheScope = getPlanningCacheScope(session)
 
   clearCachedGrades(sessionId)
+  clearMailCaches(sessionId)
+  clearMoodleCaches(sessionId)
   clearAdeCaches(cacheScope)
   clearPlanningCaches(cacheScope)
   clearPortalCaches(cacheScope)
@@ -1689,6 +1912,8 @@ const FEATURE_GATED_PREFIXES = [
   ['/__ent_auth/ade', 'ade'],
   ['/__ent_auth/planning', 'planning'],
   ['/__ent_auth/grades', 'grades'],
+  ['/__ent_auth/mail', 'mail'],
+  ['/__ent_auth/moodle', 'moodleDeadlines'],
 ]
 
 app.use((req, res, next) => {
@@ -2038,7 +2263,7 @@ app.get('/__ent_auth/launch', async (req, res) => {
 
   if (isMoodleLaunchTarget(targetUrl)) {
     try {
-      const relay = await prepareMoodleLaunchRelay(session)
+      const relay = await prepareMoodleLaunchRelay(session, targetUrl)
 
       if (debug) {
         return res.json({
@@ -2219,27 +2444,7 @@ app.get('/__ent_auth/grades', async (req, res) => {
       })
     }
 
-    await ensureGradesSession(session.jar)
-    const dataUrl = `${GRADES_ORIGIN}/services/data.php?q=dataPremi%C3%A8reConnexion`
-    const dataResponse = await fetchWithJar(dataUrl, session.jar, {
-      headers: {
-        Accept: 'application/json, */*',
-        Referer: `${GRADES_ORIGIN}/`,
-      },
-      redirect: 'follow',
-    })
-    const dataText = await dataResponse.text()
-    let gradesData = null
-
-    try {
-      gradesData = JSON.parse(dataText)
-    } catch {
-      throw new Error(`ScoDoc returned an invalid response (${dataResponse.status}).`)
-    }
-
-    if (!dataResponse.ok || !gradesData || typeof gradesData !== 'object') {
-      throw new Error(`ScoDoc grades request failed (${dataResponse.status}).`)
-    }
+    const gradesData = await fetchGradesDataOnce(session)
 
     setCachedGrades(session.id, gradesData)
     setSessionCookie(res, session)
@@ -2250,6 +2455,803 @@ app.get('/__ent_auth/grades', async (req, res) => {
     })
   } catch (error) {
     res.status(500).json({
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
+})
+
+// ---------------------------------------------------------------------------
+// Mail ("Mails récents" widget)
+// ---------------------------------------------------------------------------
+// Université de Rennes' "Messagerie" is RENATER Partage, a hosted Zimbra:
+// partage.univ-rennes.fr → sp.partage.renater.fr (Shibboleth SP) →
+// ident-shib.univ-rennes1.fr (Shibboleth IdP) → sso-cas.univ-rennes.fr (CAS).
+// The provider-specific code lives in the zimbra* helpers below; everything
+// is normalized to the contract documented in src/entApi.js#getRecentMail.
+//
+// Verified with a real Rennes account (Oct 2026): the IdP → SP → Zimbra
+// hand-off completes server-side with only the CAS TGC (no consent page) and
+// ends on partage.univ-rennes1.fr/service/preauth with a ZM_AUTH_TOKEN cookie;
+// that final redirect is plain http://, hence getHttpsOrigin(). SOAP
+// SearchRequest/GetFolderRequest work without a CSRF token.
+// Still unverified: the per-message deep link (?view=msg&id=…) surviving the
+// SAML login when opened in the browser.
+
+class MailAuthError extends Error {}
+
+const MAIL_ACCEPT_HTML = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+
+function buildMailLaunchHref(targetUrl) {
+  return targetUrl ? `/__ent_auth/launch?url=${encodeURIComponent(targetUrl)}` : null
+}
+
+// /__ent_auth/mail/open hands the server-side Zimbra session to the browser,
+// so the webmail opens already signed in.
+function getMailWebmailHref() {
+  return MAIL_WEBMAIL_URL ? '/__ent_auth/mail/open' : null
+}
+
+
+function hasZimbraAuthCookie(jar, url) {
+  const hostname = getHostnameFromUrl(url)
+  return Boolean(hostname) && jar.hasCookie(hostname, 'ZM_AUTH_TOKEN')
+}
+
+function extractZimbraCsrfToken(html) {
+  const match = String(html ?? '').match(/csrfToken\s*[=:]\s*["']([^"']{8,})["']/i)
+  return match ? match[1] : null
+}
+
+// Partage's final redirect points at http://; API calls must go over HTTPS
+// (plain HTTP just 302s back to https and drops the request).
+function getHttpsOrigin(url) {
+  const parsed = new URL(url)
+  parsed.protocol = 'https:'
+  return parsed.origin
+}
+
+// Server-side SSO chains only follow HTTPS URLs on an allowlist of domains,
+// so a hostile redirect can't make us send the session cookies elsewhere.
+function assertSignInUrl(url, allowedDomains, label) {
+  let parsed = null
+  try {
+    parsed = new URL(url)
+  } catch {
+    throw new Error(`${label} sign-in hit an invalid URL.`)
+  }
+
+  const hostname = parsed.hostname.toLowerCase()
+  const allowed = parsed.protocol === 'https:'
+    && allowedDomains.some((domain) => hostname === domain || hostname.endsWith(`.${domain}`))
+
+  if (!allowed) {
+    throw new Error(`${label} sign-in left the allowed domains (${hostname}).`)
+  }
+}
+
+function assertMailSignInUrl(url) {
+  assertSignInUrl(url, MAIL_SIGN_IN_DOMAINS, 'Webmail')
+}
+
+// Walks webmail → SP → IdP → CAS → IdP → SP (SAML POST) → webmail with a
+// copy of the session jar, so the CAS TGC can silently authenticate us.
+async function establishZimbraContext(session) {
+  if (!MAIL_WEBMAIL_URL) {
+    throw new Error('Mail provider not configured')
+  }
+
+  if (!getSessionLaunchCapabilities(session).canUseServerLaunch) {
+    throw new Error('CAS session unavailable for mail; please sign in again.')
+  }
+
+  const jar = CookieJar.fromSerialized(session.jar.serialize())
+  let currentUrl = MAIL_WEBMAIL_URL
+  let currentMethod = 'GET'
+  let currentBody
+  let currentHeaders = { Accept: MAIL_ACCEPT_HTML }
+
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    assertMailSignInUrl(currentUrl)
+    const response = await fetchWithJar(currentUrl, jar, {
+      method: currentMethod,
+      body: currentBody,
+      headers: currentHeaders,
+      redirect: 'manual',
+    })
+    const location = response.headers.get('location')
+
+    if (isRedirectStatus(response.status) && location) {
+      await response.arrayBuffer().catch(() => null)
+      const nextUrl = resolveUrl(location, currentUrl)
+
+      // Landed on the webmail with an auth cookie: no need to load the app.
+      if (hasZimbraAuthCookie(jar, nextUrl) && !isCasHost(getHostnameFromUrl(nextUrl))) {
+        return { jar, origin: getHttpsOrigin(nextUrl), csrfToken: null, createdAt: Date.now() }
+      }
+
+      currentUrl = nextUrl
+      if (response.status === 303 || ((response.status === 301 || response.status === 302) && currentMethod === 'POST')) {
+        currentMethod = 'GET'
+        currentBody = undefined
+        currentHeaders = { Accept: MAIL_ACCEPT_HTML }
+      }
+      continue
+    }
+
+    const html = await response.text()
+
+    if (hasZimbraAuthCookie(jar, currentUrl)) {
+      return {
+        jar,
+        origin: getHttpsOrigin(currentUrl),
+        csrfToken: extractZimbraCsrfToken(html),
+        createdAt: Date.now(),
+      }
+    }
+
+    if (isCasHost(getHostnameFromUrl(currentUrl)) && extractHiddenInputValue(html, 'execution')) {
+      throw new Error('CAS session expired; please sign in again to load mail.')
+    }
+
+    const autoSubmitForm = extractAutoSubmitForm(html, currentUrl)
+    if (autoSubmitForm) {
+      const referer = currentUrl
+      currentUrl = autoSubmitForm.action
+      currentMethod = 'POST'
+      currentBody = autoSubmitForm.body
+      currentHeaders = {
+        Accept: MAIL_ACCEPT_HTML,
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Origin: new URL(referer).origin,
+        Referer: referer,
+      }
+      continue
+    }
+
+    const htmlRedirect = extractHtmlRedirect(html, currentUrl)
+    if (htmlRedirect) {
+      currentUrl = htmlRedirect
+      currentMethod = 'GET'
+      currentBody = undefined
+      currentHeaders = { Accept: MAIL_ACCEPT_HTML }
+      continue
+    }
+
+    throw new Error(`Webmail sign-in stopped on an unexpected page (${response.status} at ${getHostnameFromUrl(currentUrl)}).`)
+  }
+
+  throw new Error('Too many redirects while signing in to the webmail.')
+}
+
+async function zimbraSoapRequest(context, requestName, requestBody) {
+  const headers = {
+    Accept: 'application/json',
+    'Content-Type': 'application/json; charset=utf-8',
+    Referer: `${context.origin}/`,
+  }
+  const soapContext = { _jsns: 'urn:zimbra' }
+
+  if (context.csrfToken) {
+    headers['X-Zimbra-Csrf-Token'] = context.csrfToken
+    soapContext.csrfToken = context.csrfToken
+  }
+
+  const response = await fetchWithJar(`${context.origin}/service/soap/${requestName}`, context.jar, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      Header: { context: soapContext },
+      Body: { [requestName]: { _jsns: 'urn:zimbraMail', ...requestBody } },
+    }),
+  })
+  const payload = await response.json().catch(() => null)
+  const fault = payload?.Body?.Fault
+
+  if (fault || !response.ok || !payload?.Body) {
+    const code = fault?.Detail?.Error?.Code ?? `HTTP ${response.status}`
+    const error = /AUTH_(REQUIRED|EXPIRED)/.test(code) || response.status === 401
+      ? new MailAuthError(`Zimbra ${requestName} rejected the session (${code}).`)
+      : new Error(`Zimbra ${requestName} failed (${code}).`)
+    throw error
+  }
+
+  return payload.Body[requestName.replace(/Request$/, 'Response')] ?? {}
+}
+
+async function zimbraRestInbox(context) {
+  const url = `${context.origin}/service/home/~/inbox?fmt=json&limit=${MAIL_MAX_MESSAGES}`
+  const response = await fetchWithJar(url, context.jar, {
+    headers: { Accept: 'application/json', Referer: `${context.origin}/` },
+  })
+
+  if (response.status === 401 || response.status === 403 || isRedirectStatus(response.status)) {
+    throw new MailAuthError(`Zimbra REST rejected the session (HTTP ${response.status}).`)
+  }
+
+  const payload = await response.json().catch(() => null)
+  if (!response.ok || !payload || typeof payload !== 'object') {
+    throw new Error(`Zimbra REST inbox request failed (HTTP ${response.status}).`)
+  }
+
+  return Array.isArray(payload.m) ? payload.m : []
+}
+
+function normalizeZimbraMessage(message) {
+  const addresses = Array.isArray(message?.e) ? message.e : []
+  const sender = addresses.find((address) => address?.t === 'f') ?? null
+  const email = typeof sender?.a === 'string' && sender.a ? sender.a : null
+  const timestamp = Number(message?.d)
+  const id = String(message?.id ?? '')
+
+  return {
+    id,
+    from: {
+      name: sender?.p || sender?.d || email || '',
+      email,
+    },
+    subject: typeof message?.su === 'string' ? message.su : '',
+    snippet: typeof message?.fr === 'string' ? message.fr.replace(/\s+/g, ' ').trim().slice(0, 280) : '',
+    receivedAt: Number.isFinite(timestamp) && timestamp > 0 ? new Date(timestamp).toISOString() : null,
+    unread: typeof message?.f === 'string' && message.f.includes('u'),
+    // Unverified deep link format for the Zimbra Ajax client.
+    // Partage can't deep-link through the sign-in handoff: rows open the inbox.
+    href: getMailWebmailHref(),
+  }
+}
+
+async function queryZimbraInbox(context) {
+  const [searchResult, folderResult] = await Promise.allSettled([
+    zimbraSoapRequest(context, 'SearchRequest', {
+      types: 'message',
+      query: 'in:inbox',
+      sortBy: 'dateDesc',
+      limit: MAIL_MAX_MESSAGES,
+      offset: 0,
+    }),
+    // Folder id 2 is the Inbox in every Zimbra mailbox.
+    zimbraSoapRequest(context, 'GetFolderRequest', { folder: { l: '2' }, depth: 0 }),
+  ])
+
+  let rawMessages
+  if (searchResult.status === 'fulfilled') {
+    rawMessages = Array.isArray(searchResult.value?.m) ? searchResult.value.m : []
+  } else {
+    // SOAP can be refused for CSRF reasons; the REST API has no CSRF check.
+    rawMessages = await zimbraRestInbox(context)
+  }
+
+  let unreadCount = null
+  if (folderResult.status === 'fulfilled') {
+    const folder = Array.isArray(folderResult.value?.folder) ? folderResult.value.folder[0] : folderResult.value?.folder
+    if (folder && typeof folder === 'object') {
+      unreadCount = Number.isFinite(Number(folder.u)) ? Number(folder.u) : 0
+    }
+  }
+
+  const messages = rawMessages
+    .map((message) => normalizeZimbraMessage(message))
+    .filter((message) => message.id)
+    .sort((left, right) => String(right.receivedAt ?? '').localeCompare(String(left.receivedAt ?? '')))
+    .slice(0, MAIL_MAX_MESSAGES)
+
+  return { unreadCount, webmailHref: getMailWebmailHref(), messages }
+}
+
+async function getZimbraContext(session, { fresh = false } = {}) {
+  let context = fresh ? null : runtimeMailContexts.get(session.id)
+  if (!context) {
+    context = await establishZimbraContext(session)
+    runtimeMailContexts.set(session.id, context)
+  }
+  return context
+}
+
+async function fetchZimbraRecentMail(session) {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    let context = attempt === 0 ? runtimeMailContexts.get(session.id) : null
+
+    if (!context) {
+      context = await establishZimbraContext(session)
+      runtimeMailContexts.set(session.id, context)
+    }
+
+    try {
+      return await queryZimbraInbox(context)
+    } catch (error) {
+      runtimeMailContexts.delete(session.id)
+      if (!(error instanceof MailAuthError) || attempt > 0) {
+        throw error
+      }
+    }
+  }
+
+  throw new Error('Unable to load mail.')
+}
+
+const MAIL_PROVIDERS = {
+  zimbra: fetchZimbraRecentMail,
+}
+
+async function fetchRecentMail(session) {
+  const provider = MAIL_PROVIDERS[MAIL_PROVIDER]
+  if (!provider) {
+    throw new Error('Mail provider not configured')
+  }
+
+  return provider(session)
+}
+
+// 6c. Open the webmail already signed in. Zimbra's /service/preauth accepts
+// an existing auth token (GET ?authtoken=…&isredirect=1), sets ZM_AUTH_TOKEN
+// for the browser and redirects to /mail — so the user skips the SAML/CAS
+// login. Verified on Partage (Oct 2026): POST and redirectURL are rejected
+// (400), so it always lands on the inbox, not on a specific message.
+// Any failure falls back to the regular launch relay.
+app.get('/__ent_auth/mail/open', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store')
+  res.setHeader('Referrer-Policy', 'no-referrer')
+  const fallbackHref = buildMailLaunchHref(MAIL_WEBMAIL_URL) ?? '/'
+  const session = getSessionFromRequest(req)
+
+  if (!session || !FEATURES.mail || MAIL_PROVIDER !== 'zimbra') {
+    return res.redirect(fallbackHref)
+  }
+
+  if (isDemoSession(session)) {
+    return res.redirect(buildDemoMailPayload().webmailHref ?? '/')
+  }
+
+  try {
+    const context = await getZimbraContext(session)
+    const authToken = context.jar.getCookieValue(new URL(context.origin).hostname, 'ZM_AUTH_TOKEN')
+    if (!authToken) {
+      throw new Error('No Zimbra auth token')
+    }
+
+    const preauthUrl = new URL('/service/preauth', context.origin)
+    preauthUrl.searchParams.set('authtoken', authToken)
+    preauthUrl.searchParams.set('isredirect', '1')
+    setSessionCookie(res, session)
+    res.redirect(preauthUrl.toString())
+  } catch {
+    res.redirect(fallbackHref)
+  }
+})
+
+// 6b. Recent mail endpoint
+app.get('/__ent_auth/mail/recent', async (req, res) => {
+  try {
+    res.setHeader('Cache-Control', 'no-store')
+    const session = getSessionFromRequest(req)
+
+    if (!session) {
+      return res.status(200).json({ authenticated: false, mail: null })
+    }
+
+    if (isDemoSession(session)) {
+      setSessionCookie(res, session)
+      return res.status(200).json({
+        authenticated: true,
+        sessionMode: DEMO_SESSION_MODE,
+        mail: buildDemoMailPayload(),
+      })
+    }
+
+    const cachedMail = getCachedMail(session.id)
+    if (cachedMail) {
+      setSessionCookie(res, session)
+      return res.status(200).json({
+        authenticated: true,
+        sessionMode: session.mode ?? null,
+        mail: cachedMail,
+      })
+    }
+
+    const mail = await fetchRecentMail(session)
+    setCachedMail(session.id, mail)
+    setSessionCookie(res, session)
+    return res.status(200).json({
+      authenticated: true,
+      sessionMode: session.mode ?? null,
+      mail,
+    })
+  } catch (error) {
+    // Messages above are built from status codes/hostnames only — never from
+    // cookies, tokens or upstream bodies.
+    return res.status(500).json({
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
+})
+
+// ---------------------------------------------------------------------------
+// Moodle deadlines ("Échéances Moodle" widget)
+// ---------------------------------------------------------------------------
+// Signs in to Moodle server-side with a copy of the session jar, reusing the
+// launch relay's chain (Shibboleth → WAYF → IdP → CAS → SAML POST back to the
+// SP) but posting the SAML response ourselves, so we end with a MoodleSession.
+// The dashboard page gives the sesskey (M.cfg.sesskey) needed by the AJAX web
+// service; deadlines come from core_calendar_get_action_events_by_timesort (the
+// "Chronologie" block), with core_calendar_get_calendar_upcoming_view as a
+// fallback when that function is unavailable. Normalized to the contract in
+// src/entApi.js#getMoodleDeadlines.
+//
+// `submitted` is derived from the event's action (see normalizeMoodleEvent):
+// best effort, true/false for assignments and quizzes, null otherwise.
+
+class MoodleAuthError extends Error {}
+
+const MOODLE_ACCEPT_HTML = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+const MOODLE_DEADLINES_MAX_ITEMS = 6
+const MOODLE_DEADLINES_MAX_OVERDUE = 3
+const MOODLE_DEADLINES_LOOKAHEAD_DAYS = 30
+const MOODLE_DEADLINES_OVERDUE_DAYS = 7
+const MOODLE_AUTH_ERROR_CODES = new Set([
+  'servicerequireslogin',
+  'requireloginerror',
+  'invalidsesskey',
+  'sessionerroruser',
+  'sessiontimedout',
+])
+
+function assertMoodleSignInUrl(url) {
+  assertSignInUrl(url, MOODLE_SIGN_IN_DOMAINS, 'Moodle')
+}
+
+function buildMoodleLaunchHref(targetUrl) {
+  return targetUrl && isMoodleLaunchTarget(targetUrl)
+    ? `/__ent_auth/launch?url=${encodeURIComponent(targetUrl)}`
+    : null
+}
+
+function extractMoodleSesskey(html) {
+  const match = String(html ?? '').match(/"sesskey"\s*:\s*"([A-Za-z0-9]{6,})"/)
+  return match ? match[1] : null
+}
+
+// Logged-in Moodle pages have a sesskey and no "notloggedin" body class (guest
+// pages, e.g. the login page, also carry a sesskey).
+function readSignedInMoodlePage(html, url) {
+  if (getHostnameFromUrl(url) !== MOODLE_HOST) {
+    return null
+  }
+
+  const bodyTag = String(html ?? '').match(/<body\b[^>]*>/i)?.[0] ?? ''
+  if (!bodyTag || /\bnotloggedin\b/.test(bodyTag)) {
+    return null
+  }
+
+  return extractMoodleSesskey(html)
+}
+
+async function establishMoodleContext(session) {
+  if (!MOODLE_SHIBBOLETH_LOGIN_URL) {
+    throw new Error('Moodle is not configured for this university.')
+  }
+
+  const hasCredentials = Boolean(session?.credentials?.username && session?.credentials?.password)
+  if (!getSessionLaunchCapabilities(session).canUseServerLaunch && !hasCredentials) {
+    throw new MoodleAuthError('CAS session unavailable for Moodle; please sign in again.')
+  }
+
+  const jar = CookieJar.fromSerialized(session.jar.serialize())
+  let currentUrl = MOODLE_SHIBBOLETH_LOGIN_URL
+  let currentMethod = 'GET'
+  let currentBody
+  let currentHeaders = { Accept: MOODLE_ACCEPT_HTML }
+  let casFormSubmitted = false
+
+  const goTo = (url, method = 'GET', body = undefined, headers = { Accept: MOODLE_ACCEPT_HTML }) => {
+    currentUrl = url
+    currentMethod = method
+    currentBody = body
+    currentHeaders = headers
+  }
+
+  for (let attempt = 0; attempt < 25; attempt += 1) {
+    assertMoodleSignInUrl(currentUrl)
+    const response = await fetchWithJar(currentUrl, jar, {
+      method: currentMethod,
+      body: currentBody,
+      headers: currentHeaders,
+      redirect: 'manual',
+    })
+    const location = response.headers.get('location')
+
+    if (isRedirectStatus(response.status) && location) {
+      await response.arrayBuffer().catch(() => null)
+      const nextUrl = resolveUrl(location, currentUrl)
+      // 307/308 replay a POST as-is; everything else continues as a GET.
+      if (currentMethod === 'POST' && (response.status === 307 || response.status === 308)) {
+        goTo(nextUrl, 'POST', currentBody, currentHeaders)
+      } else {
+        goTo(nextUrl)
+      }
+      continue
+    }
+
+    const html = await response.text()
+
+    // Check this first: dashboard JS can look like an HTML redirect.
+    const sesskey = response.ok ? readSignedInMoodlePage(html, currentUrl) : null
+    if (sesskey) {
+      return { jar, sesskey, createdAt: Date.now() }
+    }
+
+    if (isCasHost(getHostnameFromUrl(currentUrl)) && extractHiddenInputValue(html, 'execution')) {
+      // TGC gone (e.g. cookie-restored session): fall back to the login-time
+      // credentials kept on runtime sessions, once.
+      const casLoginRequest = !casFormSubmitted && hasCredentials
+        ? buildCasLoginRequest(html, currentUrl, session.credentials, MOODLE_ACCEPT_HTML)
+        : null
+      if (!casLoginRequest || !isCasHost(getHostnameFromUrl(casLoginRequest.actionUrl))) {
+        throw new MoodleAuthError('CAS session expired; please sign in again to load Moodle.')
+      }
+      casFormSubmitted = true
+      goTo(casLoginRequest.actionUrl, 'POST', casLoginRequest.body, casLoginRequest.headers)
+      continue
+    }
+
+    if (/name=["']user_idp["']/i.test(html)) {
+      if (!WAYF_ENTITY_ID) {
+        throw new Error('Moodle WAYF entity id is not configured.')
+      }
+      const wayfRequest = buildMoodleWayfRequest({ html, url: currentUrl, acceptHeader: MOODLE_ACCEPT_HTML })
+      goTo(wayfRequest.actionUrl, 'POST', wayfRequest.body, wayfRequest.headers)
+      continue
+    }
+
+    const autoSubmitForm = extractAutoSubmitForm(html, currentUrl)
+    if (autoSubmitForm) {
+      goTo(autoSubmitForm.action, 'POST', autoSubmitForm.body, {
+        Accept: MOODLE_ACCEPT_HTML,
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Origin: new URL(currentUrl).origin,
+        Referer: currentUrl,
+      })
+      continue
+    }
+
+    const htmlRedirect = extractHtmlRedirect(html, currentUrl)
+    if (htmlRedirect) {
+      goTo(htmlRedirect)
+      continue
+    }
+
+    throw new Error(`Moodle sign-in stopped on an unexpected page (${response.status} at ${getHostnameFromUrl(currentUrl)}).`)
+  }
+
+  throw new Error('Too many redirects while signing in to Moodle.')
+}
+
+async function moodleAjaxCall(context, methodname, args) {
+  const url = `${MOODLE_ORIGIN}/lib/ajax/service.php?sesskey=${encodeURIComponent(context.sesskey)}&info=${encodeURIComponent(methodname)}`
+  const response = await fetchWithJar(url, context.jar, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json, text/javascript, */*; q=0.01',
+      'Content-Type': 'application/json',
+      'X-Requested-With': 'XMLHttpRequest',
+      Origin: MOODLE_ORIGIN,
+      Referer: `${MOODLE_ORIGIN}/my/`,
+    },
+    body: JSON.stringify([{ index: 0, methodname, args }]),
+  })
+
+  if (response.status === 401 || response.status === 403 || isRedirectStatus(response.status)) {
+    await response.arrayBuffer().catch(() => null)
+    throw new MoodleAuthError(`Moodle ${methodname} rejected the session (HTTP ${response.status}).`)
+  }
+
+  const payload = await response.json().catch(() => null)
+  // service.php answers an array of per-call results, or a single error object
+  // when the whole request is refused (e.g. invalid sesskey).
+  const result = Array.isArray(payload) ? payload[0] : payload
+  const errorcode = result?.exception?.errorcode ?? result?.errorcode ?? null
+
+  if (!response.ok || !result || typeof result !== 'object' || result.error) {
+    const code = errorcode ? String(errorcode) : `HTTP ${response.status}`
+    throw MOODLE_AUTH_ERROR_CODES.has(code)
+      ? new MoodleAuthError(`Moodle ${methodname} rejected the session (${code}).`)
+      : new Error(`Moodle ${methodname} failed (${code}).`)
+  }
+
+  return result.data
+}
+
+function getMoodleDeadlineType(modulename) {
+  return ['assign', 'quiz', 'forum'].includes(modulename) ? modulename : 'other'
+}
+
+function normalizeMoodleEvent(event, nowMs) {
+  const timestamp = Number(event?.timesort ?? event?.timestart)
+  if (!event || !Number.isFinite(timestamp) || timestamp <= 0) {
+    return null
+  }
+
+  const type = getMoodleDeadlineType(String(event.modulename ?? ''))
+  const dueAtMs = timestamp * 1000
+  const action = event.action && typeof event.action === 'object' ? event.action : null
+  const title = [event.activityname, event.name]
+    .find((value) => typeof value === 'string' && value.trim())
+
+  return {
+    id: String(event.id ?? `${event.modulename ?? 'event'}-${event.instance ?? ''}-${timestamp}`),
+    title: title ? decodeHtmlEntities(title.trim()) : '',
+    courseName: decodeHtmlEntities(String(event.course?.fullname || event.course?.shortname || '').trim()),
+    dueAt: new Date(dueAtMs).toISOString(),
+    type,
+    overdue: dueAtMs < nowMs,
+    // Moodle drops the action of an assignment/quiz once it's submitted.
+    submitted: type === 'assign' || type === 'quiz' ? !action : null,
+    href: buildMoodleLaunchHref(typeof event.url === 'string' ? event.url : null),
+  }
+}
+
+function selectMoodleDeadlines(events, nowMs) {
+  const fromMs = nowMs - MOODLE_DEADLINES_OVERDUE_DAYS * 24 * 60 * 60 * 1000
+  const toMs = nowMs + MOODLE_DEADLINES_LOOKAHEAD_DAYS * 24 * 60 * 60 * 1000
+  const seen = new Set()
+  const items = events
+    .map((event) => normalizeMoodleEvent(event, nowMs))
+    .filter((item) => {
+      if (!item || seen.has(item.id)) return false
+      seen.add(item.id)
+      const dueAtMs = Date.parse(item.dueAt)
+      return dueAtMs >= fromMs && dueAtMs <= toMs
+    })
+    .sort((left, right) => left.dueAt.localeCompare(right.dueAt))
+
+  // Keep the most recent overdue items only, so stale ones don't crowd out
+  // what's coming up.
+  const overdue = items.filter((item) => item.overdue).slice(-MOODLE_DEADLINES_MAX_OVERDUE)
+  const upcoming = items.filter((item) => !item.overdue)
+  return [...overdue, ...upcoming].slice(0, MOODLE_DEADLINES_MAX_ITEMS)
+}
+
+async function requestMoodleEvents(context, methodname, args) {
+  const data = await moodleAjaxCall(context, methodname, args)
+  if (!Array.isArray(data?.events)) {
+    throw new Error(`Moodle ${methodname} returned no event list.`)
+  }
+  return data.events
+}
+
+// Two web services, one request each:
+// - core_calendar_get_action_events_by_timesort (the "Chronologie" block): what
+//   is still to do, overdue items included; completed activities are left out.
+// - core_calendar_get_calendar_upcoming_view (the "Événements à venir" block):
+//   every upcoming event, with `action` unset once the student has submitted.
+//   It brings back submitted assignments/quizzes, and is the fallback list
+//   when the first service is unavailable (then without overdue items).
+async function queryMoodleDeadlines(context) {
+  const nowMs = Date.now()
+  const nowSeconds = Math.floor(nowMs / 1000)
+  const [actionResult, upcomingResult] = await Promise.allSettled([
+    requestMoodleEvents(context, 'core_calendar_get_action_events_by_timesort', {
+      limitnum: 30,
+      timesortfrom: nowSeconds - MOODLE_DEADLINES_OVERDUE_DAYS * 24 * 60 * 60,
+      timesortto: nowSeconds + MOODLE_DEADLINES_LOOKAHEAD_DAYS * 24 * 60 * 60,
+      limittononsuspendedevents: true,
+    }),
+    requestMoodleEvents(context, 'core_calendar_get_calendar_upcoming_view', {
+      courseid: 1,
+      categoryid: 0,
+    }),
+  ])
+
+  for (const result of [actionResult, upcomingResult]) {
+    if (result.status === 'rejected' && result.reason instanceof MoodleAuthError) {
+      throw result.reason
+    }
+  }
+
+  const upcomingEvents = upcomingResult.status === 'fulfilled'
+    ? upcomingResult.value.filter((event) => event?.modulename)
+    : []
+  let events
+
+  if (actionResult.status === 'fulfilled') {
+    const actionEventIds = new Set(actionResult.value.map((event) => String(event?.id)))
+    const submittedEvents = upcomingEvents.filter((event) => (
+      !actionEventIds.has(String(event.id))
+      && !event.action
+      && ['assign', 'quiz'].includes(event.modulename)
+    ))
+    events = [...actionResult.value, ...submittedEvents]
+  } else if (upcomingResult.status === 'fulfilled') {
+    events = upcomingEvents
+  } else {
+    throw actionResult.reason
+  }
+
+  return {
+    moodleHref: buildMoodleLaunchHref(`${MOODLE_ORIGIN}/my/`),
+    items: selectMoodleDeadlines(events, nowMs),
+  }
+}
+
+async function fetchMoodleDeadlines(session) {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    let context = attempt === 0 ? runtimeMoodleContexts.get(session.id) : null
+    if (context && Date.now() - context.createdAt > MOODLE_CONTEXT_TTL_MS) {
+      context = null
+    }
+
+    if (!context) {
+      context = await establishMoodleContext(session)
+      runtimeMoodleContexts.set(session.id, context)
+    }
+
+    try {
+      return await queryMoodleDeadlines(context)
+    } catch (error) {
+      runtimeMoodleContexts.delete(session.id)
+      if (!(error instanceof MoodleAuthError) || attempt > 0) {
+        throw error
+      }
+    }
+  }
+
+  throw new Error('Unable to load Moodle deadlines.')
+}
+
+// Concurrent requests for the same session share one sign-in + fetch, so two
+// SAML chains never race on the same Moodle context.
+const moodleDeadlinesInflight = new Map()
+
+function fetchMoodleDeadlinesOnce(session) {
+  const inflight = moodleDeadlinesInflight.get(session.id)
+  if (inflight) {
+    return inflight
+  }
+
+  const promise = fetchMoodleDeadlines(session).finally(() => moodleDeadlinesInflight.delete(session.id))
+  moodleDeadlinesInflight.set(session.id, promise)
+  return promise
+}
+
+// 6d. Moodle deadlines endpoint
+app.get('/__ent_auth/moodle/deadlines', async (req, res) => {
+  try {
+    res.setHeader('Cache-Control', 'no-store')
+    const session = getSessionFromRequest(req)
+
+    if (!session) {
+      return res.status(200).json({ authenticated: false, deadlines: null })
+    }
+
+    if (isDemoSession(session)) {
+      setSessionCookie(res, session)
+      return res.status(200).json({
+        authenticated: true,
+        sessionMode: DEMO_SESSION_MODE,
+        deadlines: buildDemoMoodleDeadlinesPayload(),
+      })
+    }
+
+    const cachedDeadlines = getCachedMoodleDeadlines(session.id)
+    if (cachedDeadlines) {
+      setSessionCookie(res, session)
+      return res.status(200).json({
+        authenticated: true,
+        sessionMode: session.mode ?? null,
+        deadlines: cachedDeadlines,
+      })
+    }
+
+    const deadlines = await fetchMoodleDeadlinesOnce(session)
+    setCachedMoodleDeadlines(session.id, deadlines)
+    setSessionCookie(res, session)
+    return res.status(200).json({
+      authenticated: true,
+      sessionMode: session.mode ?? null,
+      deadlines,
+    })
+  } catch (error) {
+    // Messages are built from status codes, error codes and hostnames only —
+    // never from cookies, the sesskey or upstream bodies.
+    return res.status(500).json({
       error: error instanceof Error ? error.message : String(error),
     })
   }

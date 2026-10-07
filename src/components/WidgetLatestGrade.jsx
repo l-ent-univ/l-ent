@@ -12,7 +12,7 @@ import {
   positionGradeTooltipFromPointer,
 } from '../gradeFeatureState'
 
-const CARD_CLASSES = 'latest-grade-widget widget-card shadow-md flex-[0_1_280px] h-[148px] p-5 border rounded-[1.75rem] overflow-hidden text-base leading-6 min-w-0 max-2xl:flex-[1_1_calc(50%-7px)] max-2xl:min-w-0 max-md:h-[132px] max-md:p-4 max-md:rounded-3xl relative'
+const CARD_CLASSES = 'latest-grade-widget widget-card shadow-md flex-[0_1_280px] h-[140px] p-4 border rounded-[22px] overflow-hidden text-base leading-6 min-w-0 max-2xl:flex-[1_1_calc(50%-6px)] max-2xl:min-w-0 max-md:h-[124px] max-md:p-3 max-md:rounded-[20px] relative'
 const GRADE_COLORS_KEY = 'l-ent:grade-colors'
 const DEFAULT_ACCENT_COLOR = '#0073d1'
 
@@ -35,7 +35,6 @@ function getGradeColor(resource) {
 function LatestGradeHeader() {
   return (
     <div className="flex items-center gap-[5px] min-w-0">
-      <Icon icon="carbon:chart-pie" className="w-[17px] h-[17px] shrink-0" aria-hidden="true" />
       <span className="m-0 min-w-0 leading-[1.06] text-base font-medium overflow-hidden text-ellipsis whitespace-nowrap max-md:text-[15px]">Dernière note</span>
     </div>
   )
@@ -72,7 +71,7 @@ function DisabledWidgetLatestGrade({ visible }) {
 
   return (
     <article
-      className={`${CARD_CLASSES} grade-feature-disabled ${visible ? 'widget-card-visible delay-[280ms]' : ''}`}
+      className={`${CARD_CLASSES} grade-feature-disabled ${visible ? 'widget-card-visible' : ''}`}
       aria-label={`Dernière note indisponible: ${GRADES_UNAVAILABLE_MESSAGE}`}
       aria-disabled="true"
       tabIndex={0}
@@ -108,14 +107,32 @@ function LiveWidgetLatestGrade({ visible }) {
 
   useEffect(() => {
     let mounted = true
-    getLatestGrade()
-      .then((data) => {
-        if (mounted && data && !data.error) {
-          setGrade(data)
-        }
-      })
-      .catch(() => {})
-    return () => { mounted = false }
+    let retryTimer = null
+
+    // One retry after a short delay: a transient ScoDoc hiccup on dashboard
+    // load shouldn't hide the card for the whole visit.
+    const load = (attempt) => {
+      getLatestGrade()
+        .then((data) => {
+          if (!mounted) return
+          if (data && !data.error) {
+            setGrade(data)
+          } else if (attempt === 0 && !data?.disabled) {
+            retryTimer = window.setTimeout(() => load(1), 3000)
+          }
+        })
+        .catch(() => {
+          if (mounted && attempt === 0) {
+            retryTimer = window.setTimeout(() => load(1), 3000)
+          }
+        })
+    }
+
+    load(0)
+    return () => {
+      mounted = false
+      window.clearTimeout(retryTimer)
+    }
   }, [])
 
   useEffect(() => {

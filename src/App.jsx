@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from '@iconify/react'
 import universityConfig from '@university'
 import favicon from './assets/favicon.png'
@@ -22,12 +22,19 @@ import {
   clearStoredTpSelection,
   getStoredAdeLookaheadDays,
   getStoredEstablishment,
+  getStoredHiddenWidgets,
+  getStoredShowAppDescriptions,
   getStoredTpSelection,
   persistAdeLookaheadDays,
   persistEstablishment,
+  persistHiddenWidgets,
+  persistShowAppDescriptions,
   persistTpSelection,
 } from './profileStorage'
 import WidgetContainer from './components/WidgetContainer'
+import { resolveHeroImage } from './heroImage'
+import { getAvailableWidgets } from './dashboardWidgets'
+import { clearStoredCustomBackground, getStoredCustomBackground, saveCustomBackground } from './customBackground'
 import {
   ENT_ORIGIN,
   buildEntProxyHref,
@@ -54,6 +61,9 @@ import {
   requestEnt,
   searchAde,
 } from './entApi'
+
+// How far the hero photo extends below the widget row before fully fading.
+const HERO_FADE_OVERHANG_PX = 80
 
 const DEFAULT_REQUEST_PATH = '/api/v4-3/dlm/layout.json'
 const DEBUG_MENU_ENABLED = import.meta.env.DEV
@@ -954,6 +964,9 @@ function App() {
   const [establishment, setEstablishment] = useState(() => getStoredEstablishment())
   const [selectedTp, setSelectedTp] = useState(() => getStoredTpSelection())
   const [nextClassLookaheadDays, setNextClassLookaheadDays] = useState(() => getStoredAdeLookaheadDays())
+  const [hiddenWidgets, setHiddenWidgets] = useState(() => getStoredHiddenWidgets())
+  const [customBackground, setCustomBackground] = useState(() => getStoredCustomBackground())
+  const [showAppDescriptions, setShowAppDescriptions] = useState(() => getStoredShowAppDescriptions())
   // Lookahead actually fed to the next-class widget. Re-synced only while the
   // account modal is closed, so moving the slider doesn't refetch the widget
   // on every step.
@@ -1254,6 +1267,9 @@ function App() {
     setEstablishment(getStoredEstablishment(sessionState.user))
     setSelectedTp(getStoredTpSelection(sessionState.user))
     setNextClassLookaheadDays(getStoredAdeLookaheadDays(sessionState.user))
+    setHiddenWidgets(getStoredHiddenWidgets(sessionState.user))
+    setCustomBackground(getStoredCustomBackground(sessionState.user))
+    setShowAppDescriptions(getStoredShowAppDescriptions(sessionState.user))
     setHasHydratedProfile(false)
     setTpOnboardingState(createEmptyTpOnboardingState())
 
@@ -1730,6 +1746,71 @@ function App() {
   const handleNextClassLookaheadChange = useCallback((days) => {
     persistAdeLookaheadDays(days, sessionState.user)
     setNextClassLookaheadDays(days)
+  }, [sessionState.user])
+
+  const heroImage = useMemo(() => (
+    customBackground
+      ? { src: customBackground, position: null, credit: null }
+      : resolveHeroImage(establishment)
+  ), [customBackground, establishment])
+
+  // Rejects with a user-facing message (shown in Mon compte) on failure.
+  const handleCustomBackgroundChange = useCallback(async (file) => {
+    const dataUrl = await saveCustomBackground(file, sessionState.user)
+    setCustomBackground(dataUrl)
+  }, [sessionState.user])
+
+  const handleCustomBackgroundReset = useCallback(() => {
+    clearStoredCustomBackground()
+    setCustomBackground(null)
+  }, [])
+  const [heroHeight, setHeroHeight] = useState(null)
+  const heroObserverRef = useRef(null)
+
+  // The hero photo runs behind the header and the whole widget row (one or
+  // two lines, fewer when widgets are hidden), then fades just below it.
+  // Callback ref: the dashboard column mounts after auth/onboarding settle.
+  const dashboardColumnRef = useCallback((column) => {
+    heroObserverRef.current?.disconnect()
+    heroObserverRef.current = null
+
+    const widgetRow = column?.querySelector('.widget-row')
+    if (!column || !widgetRow || typeof ResizeObserver === 'undefined') {
+      return
+    }
+
+    const measure = () => {
+      const columnTop = column.getBoundingClientRect().top - column.scrollTop
+      setHeroHeight(Math.round(widgetRow.getBoundingClientRect().bottom - columnTop + HERO_FADE_OVERHANG_PX))
+    }
+
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(widgetRow)
+    observer.observe(column)
+    heroObserverRef.current = observer
+  }, [])
+
+  const handleWidgetVisibilityChange = useCallback((widgetId, visible) => {
+    setHiddenWidgets((current) => {
+      const next = visible
+        ? current.filter((id) => id !== widgetId)
+        : [...current.filter((id) => id !== widgetId), widgetId]
+      persistHiddenWidgets(next, sessionState.user)
+      return next
+    })
+  }, [sessionState.user])
+
+  const widgetToggles = useMemo(() => getAvailableWidgets(establishment).map((widget) => ({
+    id: widget.id,
+    label: widget.label,
+    icon: widget.icon,
+    visible: !hiddenWidgets.includes(widget.id),
+  })), [establishment, hiddenWidgets])
+
+  const handleShowAppDescriptionsChange = useCallback((show) => {
+    persistShowAppDescriptions(show, sessionState.user)
+    setShowAppDescriptions(show)
   }, [sessionState.user])
 
   useEffect(() => {
@@ -2311,7 +2392,7 @@ function App() {
       ) : shouldShowCompletionScreen ? (
         <OnboardingCompletionPage userName={completionScreenState.userName} isLeaving={completionScreenState.leaving} />
       ) : sessionState.authenticated ? (
-        <div key={`dashboard-${dashboardRevealNonce}`} className={`${dashboardRevealNonce > 0 ? 'dashboard-reveal-shell ' : ''}flex flex-col 4xl:flex-row min-h-screen 4xl:h-screen 4xl:min-h-0 4xl:overflow-hidden`}>
+        <div key={`dashboard-${dashboardRevealNonce}`} className={`${dashboardRevealNonce > 0 ? 'dashboard-reveal-shell ' : ''}flex flex-col min-h-screen 4xl:h-screen 4xl:min-h-0 4xl:overflow-hidden`}>
           <Sidebar
             authenticated={sessionState.authenticated}
             checking={sessionState.checking}
@@ -2328,7 +2409,17 @@ function App() {
             onUpdateClick={handleApplyUpdate}
             establishment={establishment}
           />
-          <div className="flex flex-col flex-1 min-w-0 4xl:h-screen 4xl:overflow-y-auto">
+          <div ref={dashboardColumnRef} className="relative isolate flex flex-col flex-1 min-w-0 4xl:h-screen 4xl:overflow-y-auto 4xl:pl-[292px]">
+            {/* Hero image behind the header and widget cards, fading into the solid background. */}
+            <div
+              aria-hidden="true"
+              className="dashboard-hero pointer-events-none absolute inset-x-0 top-0 -z-10 h-[230px] bg-cover bg-[center_40%] max-md:h-[260px] dark:opacity-60"
+              style={{
+                ...(heroHeight ? { height: heroHeight } : null),
+                backgroundImage: `url("${heroImage.src}")`,
+                ...(heroImage.position ? { backgroundPosition: heroImage.position } : null),
+              }}
+            />
             <div className="4xl:hidden">
               <AppHeader
                 authenticated={sessionState.authenticated}
@@ -2338,19 +2429,19 @@ function App() {
               />
             </div>
             {hasPendingUpdate ? (
-              <div className="4xl:hidden px-10 pt-4 max-xl:px-6 max-md:px-4">
+              <div className="4xl:hidden px-6 pt-3 max-md:px-3">
                 <UpdateNotice onUpdateClick={handleApplyUpdate} />
               </div>
             ) : null}
             {sessionState.warning ? (
-              <div className="px-10 pt-4 max-xl:px-6 max-md:px-4 4xl:pt-10">
+              <div className="px-6 pt-3 max-md:px-3 4xl:pt-5">
                 <div className="flex items-start gap-3 rounded-[20px] border border-[#f2cf8f] bg-[#fff7e8] px-4 py-3 text-text shadow-[0_10px_30px_rgba(0,0,0,0.05)] dark:border-[#6a4d15] dark:bg-[#2f2410]">
                   <Icon icon="carbon:warning-filled" className="mt-0.5 h-[18px] w-[18px] shrink-0 text-[#b76e00]" aria-hidden="true" />
                   <p className="m-0 text-sm font-medium leading-[1.5] font-body">{sessionState.warning}</p>
                 </div>
               </div>
             ) : null}
-            <div className="flex-1 min-h-0 4xl:flex-none 4xl:min-h-0 bg-bg">
+            <div className="flex-1 min-h-0 4xl:flex-none 4xl:min-h-0">
               <WidgetContainer
                 userName={sessionState.givenName ?? sessionState.user}
                 isSessionReady={!sessionState.checking}
@@ -2361,10 +2452,13 @@ function App() {
                 debugNextClass={debugNextClass}
                 canUseServerLaunch={sessionState.canUseServerLaunch}
                 favoritesPortalTarget={isSidebarViewport ? favoritesSlotEl : null}
+                hiddenWidgets={hiddenWidgets}
+                onDismissGreeting={() => handleWidgetVisibilityChange('greeting', false)}
+                showAppDescriptions={showAppDescriptions}
               />
             </div>
             <div className="4xl:mt-auto">
-              <AppFooter />
+              <AppFooter heroCredit={heroImage.credit} />
             </div>
           </div>
         </div>
@@ -2392,6 +2486,14 @@ function App() {
         lookaheadDays={nextClassLookaheadDays}
         lookaheadOptions={ADE_LOOKAHEAD_DAY_OPTIONS}
         onLookaheadChange={handleNextClassLookaheadChange}
+        widgetToggles={widgetToggles}
+        onWidgetVisibilityChange={handleWidgetVisibilityChange}
+        backgroundPreviewSrc={heroImage.src}
+        hasCustomBackground={Boolean(customBackground)}
+        onCustomBackgroundChange={handleCustomBackgroundChange}
+        onCustomBackgroundReset={handleCustomBackgroundReset}
+        showAppDescriptions={showAppDescriptions}
+        onShowAppDescriptionsChange={handleShowAppDescriptionsChange}
       />
       <PwaInstallPrompt forceShow={forceInstallPrompt || forceIosPrompt} forceIos={forceIosPrompt} />
       <PwaUpdateManager

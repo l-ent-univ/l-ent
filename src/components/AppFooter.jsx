@@ -4,11 +4,11 @@ import AboutModal from './AboutModal'
 
 /* global __BUILD_HASH__ */
 
-function AppFooter() {
+function AppFooter({ heroCredit = null }) {
   const [aboutOpen, setAboutOpen] = useState(false)
 
   return (
-    <footer className="flex items-center justify-center gap-[6px] pt-2 pb-6 px-6 text-text-muted text-[12px]">
+    <footer className="flex items-center justify-center gap-[6px] pt-1 pb-4 px-4 text-text-muted text-[12px]">
       <span className="font-mono">
         {import.meta.env.DEV ? 'dev' : `build ${typeof __BUILD_HASH__ !== 'undefined' ? __BUILD_HASH__ : 'dev'}`}
       </span>
@@ -20,6 +20,19 @@ function AppFooter() {
       >
         <Icon icon="carbon:information" className="h-[14px] w-[14px]" />
       </button>
+      {heroCredit?.author ? (
+        <>
+          <span aria-hidden="true">·</span>
+          <a
+            className="text-text-muted no-underline transition-colors duration-120 hover:text-text"
+            href={heroCredit.url}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Photo : {heroCredit.author}{heroCredit.license ? `, ${heroCredit.license}` : ''}
+          </a>
+        </>
+      ) : null}
       <AboutModal open={aboutOpen} onClose={() => setAboutOpen(false)} />
     </footer>
   )

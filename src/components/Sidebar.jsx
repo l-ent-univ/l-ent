@@ -112,10 +112,10 @@ function Sidebar({
 
   return (
     <aside
-      className="hidden 4xl:flex flex-col justify-between p-[30px] w-[340px] shrink-0 bg-[#f5f3ec] dark:bg-[#141414] border-r border-border h-screen overflow-y-auto"
+      className="sidebar-panel hidden 4xl:flex flex-col justify-between p-5 w-[280px] fixed top-3 left-3 bottom-3 z-30 rounded-[24px] border overflow-y-auto"
       aria-label="Navigation principale"
     >
-      <div className="flex flex-col gap-[35px] w-full">
+      <div className="flex flex-col gap-6 w-full">
         <a
           href="/"
           className="inline-flex items-center no-underline"
@@ -134,7 +134,7 @@ function Sidebar({
                 onClick={() => handleNavigate(item)}
                 aria-disabled={item.disabled ? 'true' : undefined}
                 aria-current={isActive ? 'page' : undefined}
-                className={`group relative inline-flex items-center gap-2 w-full h-[46px] px-[13px] rounded-full border text-left text-text text-base font-body font-medium leading-6 whitespace-nowrap transition-[background-color,box-shadow,border-color] duration-150 ease-in-out ${
+                className={`group relative inline-flex items-center gap-2 w-full h-10 px-3 rounded-full border text-left text-text text-base font-body font-medium leading-6 whitespace-nowrap transition-[background-color,box-shadow,border-color] duration-150 ease-in-out ${
                   isActive
                     ? 'bg-widget-bg border-white dark:border-[rgba(255,255,255,0.08)] shadow-[0_1px_3px_rgba(0,0,0,0.06)]'
                     : item.disabled
@@ -165,14 +165,14 @@ function Sidebar({
         </nav>
       </div>
 
-      <div className="flex flex-col gap-4 w-full">
+      <div className="flex flex-col gap-3 w-full">
         <div ref={favoritesSlotRef} className="sidebar-favorites-slot empty:hidden w-full" />
         {hasPendingUpdate ? <UpdateNotice onUpdateClick={onUpdateClick} /> : null}
         {authenticated ? (
           <div aria-hidden="true" className="h-px w-full bg-border/70" />
         ) : null}
         {authenticated ? (
-          <div className="flex items-center justify-between w-full h-[46px] gap-2">
+          <div className="flex items-center justify-between w-full h-10 gap-2">
           <button
             type="button"
             onClick={onAccountClick}
@@ -180,7 +180,7 @@ function Sidebar({
             className="flex items-center gap-2 min-w-0 flex-1 bg-transparent border-0 p-0 text-left cursor-pointer disabled:opacity-40 disabled:cursor-wait"
             aria-label="Mon compte"
           >
-            <span className="inline-flex shrink-0 size-10 rounded-full overflow-hidden border border-border-input bg-bg-input items-center justify-center">
+            <span className="inline-flex shrink-0 size-9 rounded-full overflow-hidden border border-border-input bg-bg-input items-center justify-center">
               {profilePhotoSrc ? (
                 <img
                   src={profilePhotoSrc}

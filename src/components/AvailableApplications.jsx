@@ -779,6 +779,7 @@ function AvailableApplications({
   establishment = null,
   canUseServerLaunch = true,
   favoritesPortalTarget = null,
+  showDescriptions = false,
 }) {
   const [viewState, setViewState] = useState({
     status: 'loading',
@@ -1559,9 +1560,9 @@ function AvailableApplications({
   // Radii are concentric: item radius = icon radius + item padding.
   const favoriteListClassName = isSidebarFavorites
     ? 'flex flex-col gap-0.5'
-    : 'flex flex-wrap gap-1.5 max-md:flex-nowrap max-md:gap-1 max-md:overflow-x-auto max-md:overflow-y-hidden max-md:-mx-4 max-md:px-4 favorites-scroll-hide'
+    : 'flex flex-wrap gap-1.5 max-md:flex-nowrap max-md:gap-1 max-md:overflow-x-auto max-md:overflow-y-hidden max-md:-mx-3 max-md:px-3 favorites-scroll-hide'
   const favoriteItemClassName = isSidebarFavorites
-    ? 'flex items-center gap-2.5 w-full p-1.5 rounded-[15px]'
+    ? 'flex items-center gap-2.5 w-full p-1 rounded-[13px]'
     : 'inline-flex items-center gap-2.5 max-w-full p-[5px] pr-3.5 rounded-[14px] max-md:flex-col max-md:gap-1.5 max-md:w-[76px] max-md:p-1.5 max-md:rounded-[20px] max-md:shrink-0'
   const favoriteIconClassName = isSidebarFavorites
     ? 'w-8 h-8 rounded-[9px]'
@@ -1571,7 +1572,7 @@ function AvailableApplications({
     : 'min-w-0 text-[14px] font-semibold leading-[1.2] whitespace-nowrap overflow-hidden text-ellipsis max-md:w-full max-md:text-[12px] max-md:text-center max-md:whitespace-normal max-md:line-clamp-2'
 
   const favoritesSectionContent = shouldHideFavoritesSection ? null : (
-    <section className="favorites-bar grid gap-2.5 relative text-brand" aria-labelledby="favorites-strip-title">
+    <section className="favorites-bar grid gap-2 relative text-brand" aria-labelledby="favorites-strip-title">
       <div className="flex items-center gap-[5px]">
         <Icon icon="carbon:star" className="w-[17px] h-[17px] text-brand shrink-0" aria-hidden="true" />
         <h2 className="m-0 text-base font-medium leading-[1.06]" id="favorites-strip-title">Favoris</h2>
@@ -1679,7 +1680,7 @@ function AvailableApplications({
         : favoritesSectionContent}
 
       {visibleServices.length > 0 ? (
-        <div className={`grid gap-4 text-brand${favoritesPortalTarget || !favoritesSectionContent ? '' : ' mt-7'}`}>
+        <div className={`grid gap-3 text-brand${favoritesPortalTarget || !favoritesSectionContent ? '' : ' mt-5'}`}>
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-[5px]">
               <Icon icon="carbon:app-switcher" className="w-[17px] h-[17px] text-brand shrink-0" aria-hidden="true" />
@@ -1697,7 +1698,7 @@ function AvailableApplications({
             </div>
           </div>
           {SHOW_CATEGORY_FILTERS && categories.length > 1 ? (
-            <div className="flex items-center gap-2 flex-wrap max-md:flex-nowrap max-md:overflow-x-auto max-md:-mx-4 max-md:px-4 favorites-scroll-hide">
+            <div className="flex items-center gap-2 flex-wrap max-md:flex-nowrap max-md:overflow-x-auto max-md:-mx-3 max-md:px-3 favorites-scroll-hide">
               <button
                 type="button"
                 className={`min-h-[34px] px-[14px] border rounded-full font-inherit text-sm font-semibold transition-[background-color,border-color,color] duration-[120ms] ${selectedCategory === null ? 'border-brand bg-brand text-bg' : 'border-border bg-bg text-brand hover:bg-bg-subtle'}`}
@@ -1717,7 +1718,7 @@ function AvailableApplications({
               ))}
             </div>
           ) : null}
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-2.5 max-md:grid-cols-1 max-md:gap-2">
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-1.5 max-md:grid-cols-1 max-md:gap-1">
             {filteredServices.map((service, index) => {
               const applicationKey = getApplicationKey(service)
               const resolvedLaunch = launchTargets[applicationKey]
@@ -1732,7 +1733,7 @@ function AvailableApplications({
               return (
                 <a
                   key={service.id}
-                  className={`app-card app-card-enter group relative flex items-center gap-3 p-2.5 border rounded-[22px] text-inherit no-underline min-w-0 focus-visible:outline-none ${isBusy || isLaunching ? 'pointer-events-none opacity-70' : ''} ${isContextOpen ? 'app-card--active' : ''}`}
+                  className={`app-card app-card-enter group relative flex items-center gap-2.5 p-2 border rounded-[18px] text-inherit no-underline min-w-0 focus-visible:outline-none ${isBusy || isLaunching ? 'pointer-events-none opacity-70' : ''} ${isContextOpen ? 'app-card--active' : ''}`}
                   style={{ animationDelay: `${Math.min(index, 24) * 20}ms` }}
                   href={href}
                   target={target || undefined}
@@ -1746,11 +1747,11 @@ function AvailableApplications({
                   <AppIcon
                     title={service.title}
                     isLaunching={isLaunching}
-                    className="w-[42px] h-[42px] rounded-[12px]"
+                    className="w-10 h-10 rounded-[11px]"
                   />
                   <span className="flex flex-col gap-0.5 flex-1 min-w-0">
                     <span className="text-[15px] font-semibold leading-[1.2] whitespace-nowrap overflow-hidden text-ellipsis">{service.title}</span>
-                    {service.description ? (
+                    {showDescriptions && service.description ? (
                       <span className="text-[13px] font-medium leading-[1.3] text-text-muted line-clamp-1 font-body">{service.description}</span>
                     ) : null}
                   </span>

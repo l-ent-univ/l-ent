@@ -40,6 +40,8 @@ export const features = {
   planning: true,
   moodle: false,
   grades: 'disabled',
+  mail: false,
+  moodleDeadlines: false,
   weather: { enabled: true, defaultCity: 'Paris' },
   demo: true,
 }
