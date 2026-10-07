@@ -2338,12 +2338,12 @@ function App() {
               />
             </div>
             {hasPendingUpdate ? (
-              <div className="4xl:hidden px-10 pt-4 max-xl:px-6 max-md:px-4">
+              <div className="4xl:hidden px-6 pt-3 max-md:px-3">
                 <UpdateNotice onUpdateClick={handleApplyUpdate} />
               </div>
             ) : null}
             {sessionState.warning ? (
-              <div className="px-10 pt-4 max-xl:px-6 max-md:px-4 4xl:pt-10">
+              <div className="px-6 pt-3 max-md:px-3 4xl:pt-5">
                 <div className="flex items-start gap-3 rounded-[20px] border border-[#f2cf8f] bg-[#fff7e8] px-4 py-3 text-text shadow-[0_10px_30px_rgba(0,0,0,0.05)] dark:border-[#6a4d15] dark:bg-[#2f2410]">
                   <Icon icon="carbon:warning-filled" className="mt-0.5 h-[18px] w-[18px] shrink-0 text-[#b76e00]" aria-hidden="true" />
                   <p className="m-0 text-sm font-medium leading-[1.5] font-body">{sessionState.warning}</p>

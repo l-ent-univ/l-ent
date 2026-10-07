@@ -809,7 +809,7 @@ function WidgetNextClass({
 
   return (
     <article
-      className={`next-class-widget widget-card relative z-0 hover:z-10 shadow-md flex-[0_1_190px] h-[148px] p-5 border border-white rounded-[1.75rem] overflow-visible text-base leading-6 min-w-0 max-2xl:flex-[1_1_calc(50%-7px)] max-2xl:min-w-[min(320px,100%)] max-md:h-[140px] max-md:p-4 max-md:rounded-3xl max-xs:flex-[1_1_100%] max-xs:min-w-0 flex flex-col gap-[6px] text-text cursor-pointer ${wide ? '2xl:flex-[0_1_380px]' : isStatusWide ? '2xl:flex-[0_1_300px]' : ''} ${visible ? 'widget-card-visible delay-[80ms]' : ''}`}
+      className={`next-class-widget widget-card relative z-0 hover:z-10 shadow-md flex-[0_1_190px] h-[140px] p-4 border border-white rounded-[22px] overflow-visible text-base leading-6 min-w-0 max-2xl:flex-[1_1_calc(50%-6px)] max-2xl:min-w-[min(320px,100%)] max-md:h-[132px] max-md:p-3 max-md:rounded-[20px] max-xs:flex-[1_1_100%] max-xs:min-w-0 flex flex-col gap-[6px] text-text cursor-pointer ${wide ? '2xl:flex-[0_1_380px]' : isStatusWide ? '2xl:flex-[0_1_300px]' : ''} ${visible ? 'widget-card-visible delay-[80ms]' : ''}`}
       style={{ '--class-gradient': classGradient, '--class-gradient-dark': classGradientDark }}
       aria-label="Prochain cours, ouvrir ADE"
       onClick={openAdePlanning}
@@ -817,7 +817,7 @@ function WidgetNextClass({
       role="link"
       tabIndex={0}
     >
-      <Icon icon="carbon:arrow-up-right" className="grade-corner-arrow absolute top-[14px] right-[14px] w-[14px] h-[14px] text-text opacity-0 transition-opacity duration-150 ease-in-out shrink-0" aria-hidden="true" />
+      <Icon icon="carbon:arrow-up-right" className="grade-corner-arrow absolute top-3 right-3 w-[14px] h-[14px] text-text opacity-0 transition-opacity duration-150 ease-in-out shrink-0" aria-hidden="true" />
       <div className="flex items-center gap-[5px] min-w-0">
         <Icon icon="carbon:calendar" className="w-[17px] h-[17px] shrink-0 text-text" aria-hidden="true" />
         <span className="m-0 min-w-0 leading-[1.06] text-base font-medium overflow-hidden text-ellipsis whitespace-nowrap max-md:text-[15px]">Prochain cours</span>

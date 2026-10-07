@@ -8,7 +8,7 @@ function AppFooter() {
   const [aboutOpen, setAboutOpen] = useState(false)
 
   return (
-    <footer className="flex items-center justify-center gap-[6px] pt-2 pb-6 px-6 text-text-muted text-[12px]">
+    <footer className="flex items-center justify-center gap-[6px] pt-1 pb-4 px-4 text-text-muted text-[12px]">
       <span className="font-mono">
         {import.meta.env.DEV ? 'dev' : `build ${typeof __BUILD_HASH__ !== 'undefined' ? __BUILD_HASH__ : 'dev'}`}
       </span>

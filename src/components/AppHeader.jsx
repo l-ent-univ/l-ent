@@ -10,7 +10,7 @@ function AppHeader({ authenticated, checking, onPrimaryAction, onAccountAction }
       : 'Se connecter'
 
   return (
-    <header className="w-full pt-10 px-10 max-xl:pt-6 max-md:pt-5 max-md:px-4">
+    <header className="w-full pt-5 px-6 max-xl:pt-4 max-md:pt-3 max-md:px-3">
       <div className="w-full flex items-center justify-between gap-6 max-xl:gap-[0.9rem] max-md:items-start max-md:gap-3">
         <a className="inline-flex items-center no-underline min-w-0 max-md:self-start" href="/" aria-label="Retour à l'accueil">
           <UniversityLockup variant="header" />

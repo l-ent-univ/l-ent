@@ -14,7 +14,7 @@ import {
   positionGradeTooltipFromPointer,
 } from '../gradeFeatureState'
 
-const CARD_CLASSES = 'average-grade-widget widget-card shadow-md flex-[0_1_220px] h-[148px] p-5 border rounded-[1.75rem] overflow-hidden text-base leading-6 min-w-0 max-2xl:flex-[1_1_calc(50%-7px)] max-2xl:min-w-0 max-md:h-[132px] max-md:p-4 max-md:rounded-3xl relative'
+const CARD_CLASSES = 'average-grade-widget widget-card shadow-md flex-[0_1_220px] h-[140px] p-4 border rounded-[22px] overflow-hidden text-base leading-6 min-w-0 max-2xl:flex-[1_1_calc(50%-6px)] max-2xl:min-w-0 max-md:h-[124px] max-md:p-3 max-md:rounded-[20px] relative'
 
 function AverageGradeHeader() {
   return (
