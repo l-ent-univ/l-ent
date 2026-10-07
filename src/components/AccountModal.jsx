@@ -524,9 +524,6 @@ function AccountModal({
                 <div className="h-px w-full bg-[var(--color-border)]" aria-hidden="true" />
 
                 <div className="flex flex-col gap-[14px]">
-                  <p className="m-0 font-body text-[13px] font-semibold uppercase tracking-[0.06em] text-text-50">
-                    Widgets
-                  </p>
                   {widgetToggles.map((widget) => (
                     <SettingSwitch
                       key={widget.id}
