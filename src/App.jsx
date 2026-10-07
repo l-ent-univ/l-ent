@@ -60,6 +60,9 @@ import {
   searchAde,
 } from './entApi'
 
+// How far the hero photo extends below the widget row before fully fading.
+const HERO_FADE_OVERHANG_PX = 80
+
 const DEFAULT_REQUEST_PATH = '/api/v4-3/dlm/layout.json'
 const DEBUG_MENU_ENABLED = import.meta.env.DEV
 const ACCOUNT_MODAL_PROFILE_PHOTO_TIMEOUT_MS = 3000
@@ -1742,6 +1745,32 @@ function App() {
   }, [sessionState.user])
 
   const heroImage = useMemo(() => resolveHeroImage(establishment), [establishment])
+  const [heroHeight, setHeroHeight] = useState(null)
+  const heroObserverRef = useRef(null)
+
+  // The hero photo runs behind the header and the whole widget row (one or
+  // two lines, fewer when widgets are hidden), then fades just below it.
+  // Callback ref: the dashboard column mounts after auth/onboarding settle.
+  const dashboardColumnRef = useCallback((column) => {
+    heroObserverRef.current?.disconnect()
+    heroObserverRef.current = null
+
+    const widgetRow = column?.querySelector('.widget-row')
+    if (!column || !widgetRow || typeof ResizeObserver === 'undefined') {
+      return
+    }
+
+    const measure = () => {
+      const columnTop = column.getBoundingClientRect().top - column.scrollTop
+      setHeroHeight(Math.round(widgetRow.getBoundingClientRect().bottom - columnTop + HERO_FADE_OVERHANG_PX))
+    }
+
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(widgetRow)
+    observer.observe(column)
+    heroObserverRef.current = observer
+  }, [])
 
   const handleGreetingHiddenChange = useCallback((hidden) => {
     persistGreetingHidden(hidden, sessionState.user)
@@ -2349,12 +2378,13 @@ function App() {
             onUpdateClick={handleApplyUpdate}
             establishment={establishment}
           />
-          <div className="relative isolate flex flex-col flex-1 min-w-0 4xl:h-screen 4xl:overflow-y-auto">
+          <div ref={dashboardColumnRef} className="relative isolate flex flex-col flex-1 min-w-0 4xl:h-screen 4xl:overflow-y-auto">
             {/* Hero image behind the header and widget cards, fading into the solid background. */}
             <div
               aria-hidden="true"
               className="dashboard-hero pointer-events-none absolute inset-x-0 top-0 -z-10 h-[230px] bg-cover bg-[center_40%] max-md:h-[260px] dark:opacity-60"
               style={{
+                ...(heroHeight ? { height: heroHeight } : null),
                 backgroundImage: `url("${heroImage.src}")`,
                 ...(heroImage.position ? { backgroundPosition: heroImage.position } : null),
               }}
