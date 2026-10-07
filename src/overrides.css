@@ -32,6 +32,24 @@
   }
 }
 
+/* ── Sidebar: floating frosted panel ── */
+
+.sidebar-panel {
+  background-color: rgb(245 243 236 / 0.6);
+  border-color: rgb(255 255 255 / 0.6);
+  -webkit-backdrop-filter: blur(24px) saturate(1.5);
+  backdrop-filter: blur(24px) saturate(1.5);
+  box-shadow: 0 12px 40px -16px rgb(52 18 0 / 0.22);
+}
+
+@media (prefers-color-scheme: dark) {
+  .sidebar-panel {
+    background-color: rgb(20 20 20 / 0.55);
+    border-color: rgb(255 255 255 / 0.08);
+    box-shadow: 0 12px 40px -16px rgb(0 0 0 / 0.6);
+  }
+}
+
 /* ── Dashboard hero image fade ── */
 
 .dashboard-hero {

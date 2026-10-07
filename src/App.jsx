@@ -2374,7 +2374,7 @@ function App() {
       ) : shouldShowCompletionScreen ? (
         <OnboardingCompletionPage userName={completionScreenState.userName} isLeaving={completionScreenState.leaving} />
       ) : sessionState.authenticated ? (
-        <div key={`dashboard-${dashboardRevealNonce}`} className={`${dashboardRevealNonce > 0 ? 'dashboard-reveal-shell ' : ''}flex flex-col 4xl:flex-row min-h-screen 4xl:h-screen 4xl:min-h-0 4xl:overflow-hidden`}>
+        <div key={`dashboard-${dashboardRevealNonce}`} className={`${dashboardRevealNonce > 0 ? 'dashboard-reveal-shell ' : ''}flex flex-col min-h-screen 4xl:h-screen 4xl:min-h-0 4xl:overflow-hidden`}>
           <Sidebar
             authenticated={sessionState.authenticated}
             checking={sessionState.checking}
@@ -2391,7 +2391,7 @@ function App() {
             onUpdateClick={handleApplyUpdate}
             establishment={establishment}
           />
-          <div ref={dashboardColumnRef} className="relative isolate flex flex-col flex-1 min-w-0 4xl:h-screen 4xl:overflow-y-auto">
+          <div ref={dashboardColumnRef} className="relative isolate flex flex-col flex-1 min-w-0 4xl:h-screen 4xl:overflow-y-auto 4xl:pl-[292px]">
             {/* Hero image behind the header and widget cards, fading into the solid background. */}
             <div
               aria-hidden="true"

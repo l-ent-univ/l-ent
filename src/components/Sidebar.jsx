@@ -112,7 +112,7 @@ function Sidebar({
 
   return (
     <aside
-      className="hidden 4xl:flex flex-col justify-between p-5 w-[280px] shrink-0 bg-[#f5f3ec] dark:bg-[#141414] border-r border-border h-screen overflow-y-auto"
+      className="sidebar-panel hidden 4xl:flex flex-col justify-between p-5 w-[280px] fixed top-3 left-3 bottom-3 z-30 rounded-[24px] border overflow-y-auto"
       aria-label="Navigation principale"
     >
       <div className="flex flex-col gap-6 w-full">
