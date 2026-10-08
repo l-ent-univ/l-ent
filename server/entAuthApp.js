@@ -18,6 +18,8 @@ import {
   getAdeSelectionResourceIds,
 } from '../adeApi.js'
 import { createAdeUpcomingResolver } from '../adeUpcomingResolver.js'
+import { createAnalytics, readAnalyticsConfig } from './analytics.js'
+import { ANALYTICS_MAX_BODY_BYTES } from './analyticsSchema.js'
 import { createPlanningPortalApiClient } from '../planningPortalApi.js'
 import { createPlanningRpcClient } from '../planningRpc.js'
 import {
@@ -43,8 +45,17 @@ import {
   normalizeDemoState,
   searchDemoAdeTree,
 } from '../src/demoAccount.js'
-export function createEntAuthApp(universityConfig) {
+// options.analytics: { projectKey, host } — defaults to POSTHOG_PROJECT_KEY /
+// POSTHOG_HOST from the environment (analytics are off without a key).
+export function createEntAuthApp(universityConfig, options = {}) {
 const app = express()
+
+const analytics = createAnalytics({
+  ...(options.analytics ?? readAnalyticsConfig()),
+  universityId: universityConfig.id ?? null,
+})
+// Lets the host server flush pending events when it shuts down.
+app.locals.analytics = analytics
 
 const GRADES_UNAVAILABLE_MESSAGE = [
   universityConfig.grades?.unavailableTitle ?? 'Notes indisponibles',
@@ -1896,6 +1907,44 @@ const {
 // Scoped to our own prefixes: this app is also mounted as middleware inside
 // the Vite dev server, where it must not touch other requests.
 app.use(['/__ent_auth', '/__ent_proxy'], cookieParser())
+
+// Anonymous audience measurement (see server/analytics.js, docs/ANALYTICS.md).
+// Registered before express.json() so it gets its own small body limit and
+// also accepts navigator.sendBeacon's text/plain bodies. Always answers 204
+// (even when analytics are off or the batch is invalid) and never touches
+// the session cookie.
+const parseAnalyticsBody = express.text({ type: () => true, limit: ANALYTICS_MAX_BODY_BYTES })
+app.post('/__ent_auth/analytics', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store')
+
+  if (!analytics.enabled) {
+    req.resume()
+    return res.status(204).end()
+  }
+
+  // Same-origin only (the browser sets Sec-Fetch-Site on fetch/sendBeacon).
+  const fetchSite = req.headers['sec-fetch-site']
+  if (fetchSite && fetchSite !== 'same-origin') {
+    req.resume()
+    return res.status(204).end()
+  }
+
+  parseAnalyticsBody(req, res, (error) => {
+    if (error) {
+      return res.status(error.status === 413 ? 413 : 204).end()
+    }
+
+    try {
+      const session = getSessionFromRequest(req)
+      analytics.ingest(req.body, session ? { id: session.id, demo: isDemoSession(session) } : null)
+    } catch {
+      // Analytics must never break the app.
+    }
+
+    res.status(204).end()
+  })
+})
+
 app.use('/__ent_auth', express.json()) // Automatically parse incoming JSON requests for auth endpoints
 
 app.use((req, res, next) => {
@@ -1941,6 +1990,7 @@ app.get('/__ent_auth/session', async (req, res) => {
         degraded: false,
         degradedReason: null,
         canUseServerLaunch: false,
+        analyticsEnabled: analytics.enabled,
       })
     }
 
@@ -1952,6 +2002,7 @@ app.get('/__ent_auth/session', async (req, res) => {
         sessionMode: DEMO_SESSION_MODE,
         sessionSource: session.sessionSource ?? null,
         ...getSessionLaunchCapabilities(session),
+        analyticsEnabled: analytics.enabled,
       })
     }
 
@@ -1968,6 +2019,7 @@ app.get('/__ent_auth/session', async (req, res) => {
         degraded: false,
         degradedReason: null,
         canUseServerLaunch: false,
+        analyticsEnabled: analytics.enabled,
       })
     }
 
@@ -1983,6 +2035,7 @@ app.get('/__ent_auth/session', async (req, res) => {
       cookieNames: session.jar.getCookieNamesForHost(ENT_HOST),
       casCookieNames: session.jar.getCookieNamesForHost(CAS_HOST),
       ...launchCapabilities,
+      analyticsEnabled: analytics.enabled,
     })
   } catch (error) {
     res.status(500).json({

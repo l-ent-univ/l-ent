@@ -83,6 +83,8 @@ Le serveur Express écoute sur le port `3000` (configurable via `PORT`).
 | `UNIVERSITY`     | Université active, ou tenant par défaut (défaut : `univ-rennes`)   | Non              |
 | `MULTI_TENANT`   | `1` : sert plusieurs universités, routées par sous-domaine         | Non              |
 | `TENANTS`        | Universités servies/buildées en multi-tenant (ids séparés par `,`) | Non              |
+| `POSTHOG_PROJECT_KEY` | Clé PostHog : active la mesure d'audience anonyme côté serveur (absente = désactivée) | Non |
+| `POSTHOG_HOST`   | Hôte PostHog (défaut : `https://eu.i.posthog.com`, UE)              | Non              |
 
 ## Multi-université par sous-domaine
 
@@ -106,6 +108,7 @@ Sur Render (plan gratuit) : build command `npm install && npm run build:all`, st
 - Les caches sensibles côté client sont vidés à la déconnexion et lors d'un échec de rafraîchissement de session.
 - Le menu debug est réservé au mode développement et n'est pas exposé dans le build de production.
 - Le point d'entrée de connexion est protégé par un rate limiting basique contre les tentatives répétées.
+- Mesure d'audience anonyme optionnelle (désactivée sans `POSTHOG_PROJECT_KEY`) : sans cookie, envoyée depuis le serveur vers PostHog UE, identifiant quotidien non réversible, aucune note, aucun mail, aucun identifiant. Désactivable dans *Mon compte*. Détails et réglages PostHog obligatoires : **[docs/ANALYTICS.md](docs/ANALYTICS.md)**.
 - Le projet vise une surface de stockage minimale, mais un déploiement sérieux nécessite tout de même HTTPS et une variable `SESSION_SECRET` forte en production.
 
 

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from '@iconify/react'
 import universityConfig from '@university'
-import { ENT_AUTH_PREFIX, getAdeUpcoming, getRecentEntLoginAgeMs } from '../entApi'
+import { useWidgetLoadReport } from '../analytics'
+import { ENT_AUTH_PREFIX, getAdeUpcoming, getRecentEntLoginAgeMs, getRequestErrorKind } from '../entApi'
 
 const CLASS_COLORS_KEY = 'l-ent:class-colors'
 const NEXT_CLASS_CACHE_KEY = 'l-ent:next-class-cache'
@@ -20,6 +21,7 @@ function createWidgetState(overrides = {}) {
     status: 'idle',
     nextClass: null,
     errorMessage: '',
+    errorKind: null,
     complete: true,
     ...overrides,
   }
@@ -409,6 +411,16 @@ async function loadUpcomingClasses({
   }
 }
 
+// Outcome of the first load (cache or network), for anonymous analytics.
+// 'unconfigured' / 'paused' / debug are not loads and are not reported.
+function getLoadOutcome(widgetState, debug) {
+  if (debug) return null
+  if (widgetState.status === 'ready') return { status: 'ok' }
+  if (widgetState.status === 'empty' || widgetState.status === 'limited') return { status: 'empty' }
+  if (widgetState.status === 'error') return { status: 'error', errorKind: widgetState.errorKind }
+  return null
+}
+
 function WidgetNextClass({
   visible = false,
   debug = false,
@@ -431,6 +443,7 @@ function WidgetNextClass({
   ))
   const [timeLabel, setTimeLabel] = useState('')
   const [wide, setWide] = useState(false)
+  useWidgetLoadReport('nextClass', getLoadOutcome(widgetState, debug))
   const visibleRef = useRef(visible)
   const loadedEventsRef = useRef([])
   const loadedCompleteRef = useRef(true)
@@ -591,6 +604,7 @@ function WidgetNextClass({
         return createWidgetState({
           status: 'error',
           errorMessage: getWidgetErrorMessage(error),
+          errorKind: getRequestErrorKind(error),
         })
       })
     } finally {

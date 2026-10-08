@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Icon } from '@iconify/react'
+import { useWidgetLoadReport } from '../analytics'
 import { getMoodleDeadlines } from '../entApi'
 import WidgetListStatus from './WidgetListStatus'
 import {
@@ -40,6 +41,14 @@ const TYPE_LABELS = {
 
 const weekdayFormatter = new Intl.DateTimeFormat('fr-FR', { weekday: 'short' })
 const fullDateFormatter = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'full', timeStyle: 'short' })
+
+// Outcome of the first load, for anonymous analytics (widget_loaded).
+function getLoadOutcome(state) {
+  if (state.status === 'ok') return { status: state.items.length > 0 ? 'ok' : 'empty' }
+  if (state.status === 'error') return { status: 'error', errorKind: state.errorKind }
+  if (state.status === 'unauthenticated') return { status: 'error', errorKind: 'other' }
+  return null
+}
 
 function isOverdue(item, due, now) {
   return Boolean(item.overdue) || (due ? due.getTime() < now.getTime() : false)
@@ -202,6 +211,7 @@ function WidgetDeadlines({ visible = false }) {
   const [now, setNow] = useState(() => new Date())
   const lastLoadAtRef = useRef(0)
   const loadingRef = useRef(false)
+  useWidgetLoadReport('deadlines', getLoadOutcome(state))
 
   const loadDeadlines = useCallback(async ({ background = false } = {}) => {
     if (loadingRef.current) return

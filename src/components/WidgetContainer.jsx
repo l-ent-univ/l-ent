@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Icon } from '@iconify/react'
 import universityConfig from '@university'
 import AvailableApplications from './AvailableApplications'
@@ -6,6 +6,7 @@ import WidgetDeadlines from './WidgetDeadlines'
 import WidgetLatestGrade from './WidgetLatestGrade'
 import WidgetNextClass from './WidgetNextClass'
 import WidgetRecentMail from './WidgetRecentMail'
+import { trackDashboardView } from '../analytics'
 import { isWidgetAvailable } from '../dashboardWidgets'
 import {
   getCurrentLocationWeather,
@@ -217,6 +218,15 @@ function WidgetContainer({
   const [isLocationPickerOpen, setIsLocationPickerOpen] = useState(false)
   const [locationQuery, setLocationQuery] = useState('')
   const [locationError, setLocationError] = useState('')
+  const hasReportedViewRef = useRef(false)
+  const showGreeting = !hiddenWidgets.includes('greeting')
+
+  // Anonymous analytics: one dashboard_viewed per dashboard mount.
+  useEffect(() => {
+    if (!isSessionReady || hasReportedViewRef.current) return
+    hasReportedViewRef.current = true
+    trackDashboardView({ greetingShown: showGreeting })
+  }, [showGreeting, isSessionReady])
 
   const loadCurrentWeather = useCallback(async () => {
     setIsWeatherLoading(true)
@@ -349,7 +359,6 @@ function WidgetContainer({
 
   const isLocationActionDisabled = isWeatherLoading
   const isShown = (widgetId) => isWidgetAvailable(widgetId, establishment) && !hiddenWidgets.includes(widgetId)
-  const showGreeting = !hiddenWidgets.includes('greeting')
   const showNextClass = debugNextClass || isShown('nextClass')
   const showGradeWidgets = isShown('latestGrade')
   const showMailWidget = isShown('mail')

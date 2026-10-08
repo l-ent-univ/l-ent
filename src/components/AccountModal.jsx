@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Icon } from '@iconify/react'
 import { AboutContent } from './AboutModal'
+import PrivacyModal from './PrivacyModal'
 
 function buildSelectOptions(options, selectedOption) {
   const normalizedOptions = Array.isArray(options) ? [...options] : []
@@ -340,7 +341,10 @@ function AccountModal({
   onCustomBackgroundReset,
   showAppDescriptions = false,
   onShowAppDescriptionsChange,
+  anonymousAnalytics = true,
+  onAnonymousAnalyticsChange = null,
 }) {
+  const [isPrivacyOpen, setPrivacyOpen] = useState(false)
   useEffect(() => {
     if (!open) {
       return undefined
@@ -602,7 +606,9 @@ function AccountModal({
               </>
             ) : null}
 
-            {typeof onShowAppDescriptionsChange === 'function' || typeof onCustomBackgroundChange === 'function' ? (
+            {typeof onShowAppDescriptionsChange === 'function'
+              || typeof onCustomBackgroundChange === 'function'
+              || typeof onAnonymousAnalyticsChange === 'function' ? (
               <>
                 <div className="h-px w-full bg-[var(--color-border)]" aria-hidden="true" />
 
@@ -622,6 +628,19 @@ function AccountModal({
                       checked={showAppDescriptions}
                       onChange={onShowAppDescriptionsChange}
                     />
+                  ) : null}
+                  {typeof onAnonymousAnalyticsChange === 'function' ? (
+                    <div className="flex flex-col gap-[6px]">
+                      <SettingSwitch
+                        icon="carbon:chart-line"
+                        label="Statistiques anonymes"
+                        checked={anonymousAnalytics}
+                        onChange={onAnonymousAnalyticsChange}
+                      />
+                      <button type="button" className="self-start p-0 border-0 bg-transparent font-body text-[13px] font-medium text-text-60 underline underline-offset-2 cursor-pointer transition-colors duration-[120ms] hover:text-[var(--color-text)]" onClick={() => setPrivacyOpen(true)}>
+                        Ce qui est mesuré (et ce qui ne l’est jamais)
+                      </button>
+                    </div>
                   ) : null}
                 </div>
               </>
@@ -660,6 +679,7 @@ function AccountModal({
           ) : null}
         </div>
       </section>
+      <PrivacyModal open={isPrivacyOpen} onClose={() => setPrivacyOpen(false)} />
     </div>
   )
 }

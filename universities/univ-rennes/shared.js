@@ -25,7 +25,7 @@ export const branding = {
   about: {
     intro: "est un client alternatif aux services numériques de l'Université de Rennes.",
     disclaimer:
-      "Client non officiel, indépendant et non affilié à l'Université de Rennes. Ce projet ne stocke aucune donnée personnelle et se contente de relayer les services existants dans une interface repensée.",
+      "Client non officiel, indépendant et non affilié à l'Université de Rennes. Aucune donnée personnelle n'est stockée ni collectée : ce projet se contente de relayer les services existants dans une interface repensée.",
     authorLine: "Fait par un étudiant de l'IUT de Lannion",
     authorUrl: 'https://tomthings.fr',
     repoUrl: 'https://github.com/tom-things/l-ent',

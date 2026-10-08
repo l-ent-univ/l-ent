@@ -50,6 +50,23 @@
   }
 }
 
+/* ── Privacy modal illustration sky (Figma "illu" gradient, themed) ── */
+
+.privacy-illustration {
+  background-image: linear-gradient(to bottom, #cdf7ff, rgb(245 243 237 / 0));
+}
+
+@media (prefers-color-scheme: dark) {
+  .privacy-illustration {
+    background-image: linear-gradient(to bottom, #12304a, rgb(15 15 15 / 0));
+  }
+
+  /* Soft-light clouds read as harsh blotches on the night sky: keep a hint. */
+  .privacy-illustration-clouds {
+    opacity: 0.3;
+  }
+}
+
 /* ── Dashboard hero image fade ── */
 
 .dashboard-hero {

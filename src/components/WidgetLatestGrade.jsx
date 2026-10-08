@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Icon } from '@iconify/react'
-import { GRADES_LAUNCH_HREF, getLatestGrade, openGradesService } from '../entApi'
+import { useWidgetLoadReport } from '../analytics'
+import { GRADES_LAUNCH_HREF, getLatestGrade, getRequestErrorKind, openGradesService } from '../entApi'
 import {
   DEMO_LATEST_GRADE,
   GRADES_DISABLED_PILL_LABEL,
@@ -103,7 +104,9 @@ function LiveWidgetLatestGrade({ visible }) {
   const [grade, setGrade] = useState(null)
   const [isReady, setIsReady] = useState(false)
   const [wide, setWide] = useState(false)
+  const [loadOutcome, setLoadOutcome] = useState(null)
   const titleRef = useRef(null)
+  useWidgetLoadReport('latestGrade', loadOutcome)
 
   useEffect(() => {
     let mounted = true
@@ -117,13 +120,19 @@ function LiveWidgetLatestGrade({ visible }) {
           if (!mounted) return
           if (data && !data.error) {
             setGrade(data)
+            setLoadOutcome({ status: 'ok' })
           } else if (attempt === 0 && !data?.disabled) {
             retryTimer = window.setTimeout(() => load(1), 3000)
+          } else if (!data?.disabled) {
+            setLoadOutcome(data?.empty ? { status: 'empty' } : { status: 'error', errorKind: data?.errorKind })
           }
         })
-        .catch(() => {
-          if (mounted && attempt === 0) {
+        .catch((error) => {
+          if (!mounted) return
+          if (attempt === 0) {
             retryTimer = window.setTimeout(() => load(1), 3000)
+          } else {
+            setLoadOutcome({ status: 'error', errorKind: getRequestErrorKind(error) })
           }
         })
     }

@@ -4,6 +4,7 @@ export const ADE_LOOKAHEAD_KEY = 'l-ent:ade-lookahead-days'
 export const GREETING_HIDDEN_KEY = 'l-ent:greeting-hidden'
 export const HIDDEN_WIDGETS_KEY = 'l-ent:hidden-widgets'
 export const APP_DESCRIPTIONS_KEY = 'l-ent:show-app-descriptions'
+export const ANONYMOUS_ANALYTICS_KEY = 'l-ent:anonymous-analytics'
 const STUDENT_TP_SELECTION_VERSION = 4
 
 // Discrete steps offered by the "next class" lookahead slider (in days).
@@ -204,6 +205,22 @@ export function persistShowAppDescriptions(show, userId = null) {
     localStorage.setItem(APP_DESCRIPTIONS_KEY, JSON.stringify({
       user: userId || null,
       value: Boolean(show),
+    }))
+  } catch {
+    // Storage unavailable
+  }
+}
+
+// "Statistiques anonymes" (Mon compte): on unless this user switched it off.
+export function getStoredAnonymousAnalytics(userId = null) {
+  return readScopedStorageValue(ANONYMOUS_ANALYTICS_KEY, userId) !== false
+}
+
+export function persistAnonymousAnalytics(enabled, userId = null) {
+  try {
+    localStorage.setItem(ANONYMOUS_ANALYTICS_KEY, JSON.stringify({
+      user: userId || null,
+      value: Boolean(enabled),
     }))
   } catch {
     // Storage unavailable
