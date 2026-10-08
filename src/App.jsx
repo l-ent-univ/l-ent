@@ -13,7 +13,7 @@ import PwaInstallPrompt from './components/PwaInstallPrompt'
 import OnboardingPage from './components/OnboardingPage'
 import PwaUpdateManager from './components/PwaUpdateManager'
 import UpdateNotice from './components/UpdateNotice'
-import { DEMO_CREDENTIALS } from './demoAccount'
+import { DEMO_CREDENTIALS, DEMO_SESSION_MODE } from './demoAccount'
 import { syncRuntimeSeo } from './seo'
 import {
   ESTABLISHMENT_KEY,
@@ -21,11 +21,13 @@ import {
   ADE_LOOKAHEAD_DAY_OPTIONS,
   clearStoredTpSelection,
   getStoredAdeLookaheadDays,
+  getStoredAnonymousAnalytics,
   getStoredEstablishment,
   getStoredHiddenWidgets,
   getStoredShowAppDescriptions,
   getStoredTpSelection,
   persistAdeLookaheadDays,
+  persistAnonymousAnalytics,
   persistEstablishment,
   persistHiddenWidgets,
   persistShowAppDescriptions,
@@ -35,6 +37,14 @@ import WidgetContainer from './components/WidgetContainer'
 import { resolveHeroImage } from './heroImage'
 import { getAvailableWidgets } from './dashboardWidgets'
 import { clearStoredCustomBackground, getStoredCustomBackground, saveCustomBackground } from './customBackground'
+import {
+  flushAnalytics,
+  setAnalyticsAvailable,
+  setAnalyticsEstablishment,
+  setAnalyticsUserEnabled,
+  track,
+  useAnalyticsAvailable,
+} from './analytics'
 import {
   ENT_ORIGIN,
   buildEntProxyHref,
@@ -967,6 +977,8 @@ function App() {
   const [hiddenWidgets, setHiddenWidgets] = useState(() => getStoredHiddenWidgets())
   const [customBackground, setCustomBackground] = useState(() => getStoredCustomBackground())
   const [showAppDescriptions, setShowAppDescriptions] = useState(() => getStoredShowAppDescriptions())
+  const [anonymousAnalytics, setAnonymousAnalytics] = useState(() => getStoredAnonymousAnalytics())
+  const isAnalyticsAvailable = useAnalyticsAvailable()
   // Lookahead actually fed to the next-class widget. Re-synced only while the
   // account modal is closed, so moving the slider doesn't refetch the widget
   // on every step.
@@ -1045,6 +1057,7 @@ function App() {
 
     try {
       const session = await getAuthSession()
+      setAnalyticsAvailable(session?.analyticsEnabled)
       let givenName = null
       let account = null
 
@@ -1270,6 +1283,11 @@ function App() {
     setHiddenWidgets(getStoredHiddenWidgets(sessionState.user))
     setCustomBackground(getStoredCustomBackground(sessionState.user))
     setShowAppDescriptions(getStoredShowAppDescriptions(sessionState.user))
+    // Applied to the analytics module right away (not in an effect) so the
+    // first dashboard events already honour this user's choice.
+    const storedAnonymousAnalytics = getStoredAnonymousAnalytics(sessionState.user)
+    setAnalyticsUserEnabled(storedAnonymousAnalytics)
+    setAnonymousAnalytics(storedAnonymousAnalytics)
     setHasHydratedProfile(false)
     setTpOnboardingState(createEmptyTpOnboardingState())
 
@@ -1758,11 +1776,13 @@ function App() {
   const handleCustomBackgroundChange = useCallback(async (file) => {
     const dataUrl = await saveCustomBackground(file, sessionState.user)
     setCustomBackground(dataUrl)
+    track('setting_changed', { setting: 'custom_background', value: 'on' })
   }, [sessionState.user])
 
   const handleCustomBackgroundReset = useCallback(() => {
     clearStoredCustomBackground()
     setCustomBackground(null)
+    track('setting_changed', { setting: 'custom_background', value: 'off' })
   }, [])
   const [heroHeight, setHeroHeight] = useState(null)
   const heroObserverRef = useRef(null)
@@ -1792,6 +1812,7 @@ function App() {
   }, [])
 
   const handleWidgetVisibilityChange = useCallback((widgetId, visible) => {
+    track('setting_changed', { setting: 'widget_visibility', value: visible ? 'on' : 'off', widget: widgetId })
     setHiddenWidgets((current) => {
       const next = visible
         ? current.filter((id) => id !== widgetId)
@@ -1811,7 +1832,23 @@ function App() {
   const handleShowAppDescriptionsChange = useCallback((show) => {
     persistShowAppDescriptions(show, sessionState.user)
     setShowAppDescriptions(show)
+    track('setting_changed', { setting: 'app_descriptions', value: show ? 'on' : 'off' })
   }, [sessionState.user])
+
+  // "Statistiques anonymes": switching it off stops tracking before anything
+  // else happens, so the change itself is never reported.
+  const handleAnonymousAnalyticsChange = useCallback((enabled) => {
+    setAnalyticsUserEnabled(enabled)
+    persistAnonymousAnalytics(enabled, sessionState.user)
+    setAnonymousAnalytics(enabled)
+    if (enabled) {
+      track('setting_changed', { setting: 'analytics', value: 'on' })
+    }
+  }, [sessionState.user])
+
+  useEffect(() => {
+    setAnalyticsEstablishment(establishment)
+  }, [establishment])
 
   useEffect(() => {
     if (!isAccountModalOpen) {
@@ -2048,6 +2085,8 @@ function App() {
 
     try {
       const result = await loginToEnt(credentials)
+      track('login_result', { result: 'success', demo: result?.sessionMode === DEMO_SESSION_MODE })
+      flushAnalytics()
       setCredentials((current) => ({
         ...current,
         password: '',
@@ -2070,6 +2109,8 @@ function App() {
         warning: '',
         error: message,
       })
+      track('login_result', { result: 'failure', demo: false })
+      flushAnalytics()
       commitDebugState('Connexion', null, message)
     }
   }
@@ -2094,6 +2135,8 @@ function App() {
 
     try {
       const result = await loginToEnt(DEMO_CREDENTIALS)
+      track('login_result', { result: 'success', demo: true })
+      flushAnalytics()
       setCredentials((current) => ({
         ...current,
         password: '',
@@ -2116,6 +2159,8 @@ function App() {
         warning: '',
         error: message,
       })
+      track('login_result', { result: 'failure', demo: true })
+      flushAnalytics()
       commitDebugState('Connexion demo', null, message)
     }
   }
@@ -2494,6 +2539,8 @@ function App() {
         onCustomBackgroundReset={handleCustomBackgroundReset}
         showAppDescriptions={showAppDescriptions}
         onShowAppDescriptionsChange={handleShowAppDescriptionsChange}
+        anonymousAnalytics={anonymousAnalytics}
+        onAnonymousAnalyticsChange={isAnalyticsAvailable ? handleAnonymousAnalyticsChange : null}
       />
       <PwaInstallPrompt forceShow={forceInstallPrompt || forceIosPrompt} forceIos={forceIosPrompt} />
       <PwaUpdateManager

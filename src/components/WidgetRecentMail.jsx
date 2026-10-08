@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Icon } from '@iconify/react'
+import { useWidgetLoadReport } from '../analytics'
 import { getRecentMail } from '../entApi'
 import WidgetListStatus from './WidgetListStatus'
 import {
@@ -24,6 +25,14 @@ const ROW_CLASSES = 'grid grid-cols-[6px_minmax(0,1fr)_auto] content-center item
 const weekdayFormatter = new Intl.DateTimeFormat('fr-FR', { weekday: 'short' })
 const dayMonthFormatter = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'short' })
 const fullDateFormatter = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'full', timeStyle: 'short' })
+
+// Outcome of the first load, for anonymous analytics (widget_loaded).
+function getLoadOutcome(state) {
+  if (state.status === 'ok') return { status: state.messages.length > 0 ? 'ok' : 'empty' }
+  if (state.status === 'error') return { status: 'error', errorKind: state.errorKind }
+  if (state.status === 'unauthenticated') return { status: 'error', errorKind: 'other' }
+  return null
+}
 
 // Mail-client style timestamp, matching the "15h15" notation used by the
 // next-class card: "14h32" today, "hier", "lun." this week, "12 sept." older.
@@ -113,6 +122,7 @@ function WidgetRecentMail({ visible = false }) {
   const [now, setNow] = useState(() => new Date())
   const lastLoadAtRef = useRef(0)
   const loadingRef = useRef(false)
+  useWidgetLoadReport('mail', getLoadOutcome(state))
 
   const loadMail = useCallback(async ({ background = false } = {}) => {
     if (loadingRef.current) return

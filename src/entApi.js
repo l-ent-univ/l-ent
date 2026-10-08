@@ -155,6 +155,24 @@ async function parseResponse(response) {
   }
 }
 
+// Coarse failure kind for anonymous analytics (widget_loaded.error_kind).
+// Errors thrown below carry the HTTP status in `status` when there was a
+// response; a fetch that never got one rejects with a TypeError.
+export function getRequestErrorKind(error) {
+  const status = Number(error?.status)
+  if (status >= 500) return 'http_5xx'
+  if (status >= 400) return 'http_4xx'
+  if (error?.name === 'AbortError' || error?.name === 'TimeoutError') return 'timeout'
+  if (error instanceof TypeError) return 'network'
+  return 'other'
+}
+
+function createHttpError(message, status) {
+  const error = new Error(message)
+  error.status = status
+  return error
+}
+
 async function parseJsonPayload(response) {
   const text = await response.text()
   let data = {}
@@ -172,7 +190,7 @@ async function parseJsonPayload(response) {
         ? data
         : `Request failed with status ${response.status}.`
 
-    throw new Error(errorMessage)
+    throw createHttpError(errorMessage, response.status)
   }
 
   return data
@@ -332,7 +350,7 @@ export async function getRecentMail() {
     }
 
     if (!response.ok || !payload) {
-      throw new Error(payload?.error || `Mail request failed (${response.status}).`)
+      throw createHttpError(payload?.error || `Mail request failed (${response.status}).`, response.status)
     }
 
     if (!payload.authenticated || !payload.mail) {
@@ -352,6 +370,7 @@ export async function getRecentMail() {
       webmailHref: null,
       messages: [],
       error: error instanceof Error ? error.message : String(error),
+      errorKind: getRequestErrorKind(error),
     }
   }
 }
@@ -389,7 +408,7 @@ export async function getMoodleDeadlines() {
     }
 
     if (!response.ok || !payload) {
-      throw new Error(payload?.error || `Moodle request failed (${response.status}).`)
+      throw createHttpError(payload?.error || `Moodle request failed (${response.status}).`, response.status)
     }
 
     if (!payload.authenticated || !payload.deadlines) {
@@ -406,6 +425,7 @@ export async function getMoodleDeadlines() {
       status: 'error',
       ...empty,
       error: error instanceof Error ? error.message : String(error),
+      errorKind: getRequestErrorKind(error),
     }
   }
 }
@@ -445,6 +465,7 @@ async function requestGrades() {
       authenticated: false,
       grades: null,
       error: error instanceof Error ? error.message : String(error),
+      errorKind: getRequestErrorKind(error),
     }
   }
 }
@@ -780,7 +801,7 @@ export function detectScodocGroupSelection(gradesData = null) {
 
 function resolveGradesReleve(data) {
   if (data?.error) {
-    return { error: String(data.error) }
+    return { error: String(data.error), errorKind: data.errorKind ?? 'other' }
   }
 
   if (!data?.authenticated) {
@@ -796,7 +817,7 @@ function resolveGradesReleve(data) {
 
   const releve = getCurrentGradesReleve(data.grades)
   if (!releve) {
-    return { error: 'Aucun relevé disponible.' }
+    return { error: 'Aucun relevé disponible.', empty: true }
   }
 
   return { releve }
@@ -930,7 +951,7 @@ export async function getLatestGrade() {
     }
   }
 
-  return latest ?? { error: 'Aucune note trouvée.' }
+  return latest ?? { error: 'Aucune note trouvée.', empty: true }
 }
 
 // ============================================================================

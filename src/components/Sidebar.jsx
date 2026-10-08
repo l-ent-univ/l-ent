@@ -3,6 +3,7 @@ import { Icon } from '@iconify/react'
 import universityConfig from '@university'
 import UniversityLockup from './UniversityLockup'
 import UpdateNotice from './UpdateNotice'
+import { track } from '../analytics'
 import { ENT_AUTH_PREFIX, GRADES_LAUNCH_HREF } from '../entApi'
 import {
   GRADES_FEATURE_DISABLED,
@@ -92,6 +93,7 @@ function Sidebar({
     }
 
     if (item.href) {
+      track('app_opened', { app: item.id, source: 'sidebar' })
       if (item.target === '_blank') {
         window.open(item.href, '_blank', 'noopener,noreferrer')
         return

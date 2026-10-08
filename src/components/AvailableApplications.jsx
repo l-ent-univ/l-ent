@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import { createPortal } from 'react-dom'
 import { Icon } from '@iconify/react'
 import universityConfig from '@university'
+import { toAppSlug, track } from '../analytics'
 import {
   ENT_ORIGIN,
   buildEntProxyHref,
@@ -63,6 +64,15 @@ function getLookupCandidates(item = {}) {
 
 function getApplicationKey(application = {}) {
   return application.fname || application.id
+}
+
+// Anonymous analytics: which application was opened, and from where. Only
+// the portal/app identifier (slugged) is sent — never its title or URL.
+function trackApplicationOpened(application, source) {
+  const app = toAppSlug(getApplicationKey(application))
+  if (app) {
+    track('app_opened', { app, source })
+  }
 }
 
 const FAVORITES_ORDER_KEY = 'l-ent:favorites-order'
@@ -1339,6 +1349,7 @@ function AvailableApplications({
   }
 
   async function handleOpenApplicationInNewTab(application) {
+    trackApplicationOpened(application, contextMenuState.source === 'all' ? 'grid' : 'favorites')
     setFavoriteActionState((current) => ({ ...current, error: '' }))
     closeContextMenu()
 
@@ -1522,7 +1533,10 @@ function AvailableApplications({
     }
   }
 
-  async function handleApplicationClick(event, application) {
+  async function handleApplicationClick(event, application, source) {
+    // Modified clicks still open the app (natively, in a new tab).
+    trackApplicationOpened(application, source)
+
     if (!isPlainLeftClick(event)) {
       return
     }
@@ -1636,7 +1650,7 @@ function AvailableApplications({
                 onMouseEnter={() => warmApplicationLaunch(application)}
                 onFocus={() => warmApplicationLaunch(application)}
                 onContextMenu={(event) => handleFavoriteContextMenu(event, application, 'favorite')}
-                onClick={(event) => void handleApplicationClick(event, application)}
+                onClick={(event) => void handleApplicationClick(event, application, 'favorites')}
               >
                 <AppIcon
                   title={application.title}
@@ -1742,7 +1756,7 @@ function AvailableApplications({
                   onMouseEnter={() => warmApplicationLaunch(service)}
                   onFocus={() => warmApplicationLaunch(service)}
                   onContextMenu={(event) => handleFavoriteContextMenu(event, service, 'all')}
-                  onClick={(event) => void handleApplicationClick(event, service)}
+                  onClick={(event) => void handleApplicationClick(event, service, 'grid')}
                 >
                   <AppIcon
                     title={service.title}

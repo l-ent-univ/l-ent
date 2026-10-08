@@ -340,6 +340,8 @@ function AccountModal({
   onCustomBackgroundReset,
   showAppDescriptions = false,
   onShowAppDescriptionsChange,
+  anonymousAnalytics = true,
+  onAnonymousAnalyticsChange = null,
 }) {
   useEffect(() => {
     if (!open) {
@@ -602,7 +604,9 @@ function AccountModal({
               </>
             ) : null}
 
-            {typeof onShowAppDescriptionsChange === 'function' || typeof onCustomBackgroundChange === 'function' ? (
+            {typeof onShowAppDescriptionsChange === 'function'
+              || typeof onCustomBackgroundChange === 'function'
+              || typeof onAnonymousAnalyticsChange === 'function' ? (
               <>
                 <div className="h-px w-full bg-[var(--color-border)]" aria-hidden="true" />
 
@@ -621,6 +625,14 @@ function AccountModal({
                       label="Descriptions des applications"
                       checked={showAppDescriptions}
                       onChange={onShowAppDescriptionsChange}
+                    />
+                  ) : null}
+                  {typeof onAnonymousAnalyticsChange === 'function' ? (
+                    <SettingSwitch
+                      icon="carbon:chart-line"
+                      label="Statistiques anonymes"
+                      checked={anonymousAnalytics}
+                      onChange={onAnonymousAnalyticsChange}
                     />
                   ) : null}
                 </div>

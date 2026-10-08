@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { Icon } from '@iconify/react'
 import universityConfig from '@university'
+import { useAnalyticsAvailable } from '../analytics'
 
 /* global __BUILD_HASH__ */
 
@@ -10,6 +11,7 @@ const about = universityConfig.branding.about ?? {}
 // modal.
 export function AboutContent({ demoLinkLabel = '', onDemoLinkClick = null }) {
   const shouldShowDemoLink = typeof onDemoLinkClick === 'function' && demoLinkLabel.trim()
+  const isAnalyticsAvailable = useAnalyticsAvailable()
 
   return (
     <div className="flex flex-col gap-3 font-body text-[15px] leading-[1.45]">
@@ -19,6 +21,11 @@ export function AboutContent({ demoLinkLabel = '', onDemoLinkClick = null }) {
       {about.disclaimer ? (
         <p className="m-0 text-text-secondary">
           {about.disclaimer}
+        </p>
+      ) : null}
+      {isAnalyticsAvailable ? (
+        <p className="m-0 text-text-secondary">
+          Mesure d’audience anonyme, sans cookie, hébergée dans l’UE. Aucune note, aucun mail, aucun identifiant n’est collecté. Désactivable dans Mon compte.
         </p>
       ) : null}
       {about.repoUrl ? (

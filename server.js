@@ -13,6 +13,7 @@
 import express from 'express'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { shutdownAllAnalytics } from './server/analytics.js'
 import { createEntAuthApp } from './server/entAuthApp.js'
 import {
   listUniversityIds,
@@ -143,5 +144,12 @@ if (!MULTI_TENANT) {
 
   rootApp.listen(PORT, () => {
     console.log(`Server is running on http://localhost:${PORT} (multi-tenant: ${tenantIds.join(', ')}; default: ${defaultUniversityId})`)
+  })
+}
+
+// Flush pending anonymous analytics events (if enabled) before exiting.
+for (const signal of ['SIGTERM', 'SIGINT']) {
+  process.once(signal, () => {
+    shutdownAllAnalytics().finally(() => process.exit(0))
   })
 }

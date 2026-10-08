@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useRegisterSW } from 'virtual:pwa-register/react'
 import RefreshedPrompt from './RefreshedPrompt'
+import { flushAnalytics, track } from '../analytics'
 
 const LOCAL_PWA_HOSTS = new Set(['localhost', '127.0.0.1', '0.0.0.0', '::1'])
 const LOCAL_PWA_RESET_KEY = 'l-ent:local-pwa-reset'
@@ -115,6 +116,9 @@ function ProductionPwaManager({ forceOpen, onForceOpenChange, onUpdateAvailable,
     }
 
     setIsApplyingUpdate(true)
+    // Sent right away: applying the update reloads the page.
+    track('pwa_update_applied')
+    flushAnalytics()
 
     try {
       if (needRefresh || hasPendingUpdate) {

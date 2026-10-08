@@ -2,7 +2,8 @@ import { execSync } from 'node:child_process'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
+import { readAnalyticsConfig } from './server/analytics.js'
 import { createEntAuthApp } from './server/entAuthApp.js'
 import { clientConfigPath, listUniversityIds, loadServerConfig, loadSharedConfig, resolveUniversityId } from './universities/index.js'
 
@@ -12,6 +13,17 @@ const { branding } = await loadSharedConfig(universityId)
 
 // Dev/preview backend: the same Express app the production server mounts
 // (server/entAuthApp.js). Unmatched requests fall through to Vite.
+// POSTHOG_* may come from the shell or from .env / .env.local (shell wins).
+function mountEntAuthApp(server) {
+  const env = loadEnv(server.config.mode, server.config.envDir || process.cwd(), 'POSTHOG_')
+  const entAuthApp = createEntAuthApp(universityServerConfig, { analytics: readAnalyticsConfig(env) })
+
+  server.middlewares.use(entAuthApp)
+  server.httpServer?.once('close', () => {
+    void entAuthApp.locals.analytics.shutdown()
+  })
+}
+
 const entDevAuthPlugin = {
   name: 'ent-dev-auth',
   configureServer(server) {
@@ -37,10 +49,10 @@ const entDevAuthPlugin = {
       server.restart()
     })
 
-    server.middlewares.use(createEntAuthApp(universityServerConfig))
+    mountEntAuthApp(server)
   },
   configurePreviewServer(server) {
-    server.middlewares.use(createEntAuthApp(universityServerConfig))
+    mountEntAuthApp(server)
   },
   // index.html carries %LENT_*% placeholders so titles/SEO follow the
   // configured university in both dev and build.
