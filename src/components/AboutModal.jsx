@@ -1,7 +1,8 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Icon } from '@iconify/react'
 import universityConfig from '@university'
 import { useAnalyticsAvailable } from '../analytics'
+import PrivacyModal from './PrivacyModal'
 
 /* global __BUILD_HASH__ */
 
@@ -12,6 +13,7 @@ const about = universityConfig.branding.about ?? {}
 export function AboutContent({ demoLinkLabel = '', onDemoLinkClick = null }) {
   const shouldShowDemoLink = typeof onDemoLinkClick === 'function' && demoLinkLabel.trim()
   const isAnalyticsAvailable = useAnalyticsAvailable()
+  const [isPrivacyOpen, setPrivacyOpen] = useState(false)
 
   return (
     <div className="flex flex-col gap-3 font-body text-[15px] leading-[1.45]">
@@ -25,9 +27,13 @@ export function AboutContent({ demoLinkLabel = '', onDemoLinkClick = null }) {
       ) : null}
       {isAnalyticsAvailable ? (
         <p className="m-0 text-text-secondary">
-          Mesure d’audience anonyme, sans cookie, hébergée dans l’UE. Aucune note, aucun mail, aucun identifiant n’est collecté. Désactivable dans Mon compte.
+          On mesure l’audience de façon anonyme et sans cookie, avec des outils hébergés dans l’UE : aucune note, aucun mail, aucun identifiant n’est collecté, et tu peux tout couper dans Mon compte.{' '}
+          <button type="button" className="p-0 border-0 bg-transparent font-inherit text-[inherit] text-text underline underline-offset-2 cursor-pointer" onClick={() => setPrivacyOpen(true)}>
+            En savoir plus
+          </button>
         </p>
       ) : null}
+      <PrivacyModal open={isPrivacyOpen} onClose={() => setPrivacyOpen(false)} />
       {about.repoUrl ? (
         <p className="m-0">
           Code source disponible sur{' '}

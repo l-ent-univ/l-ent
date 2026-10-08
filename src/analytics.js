@@ -1,15 +1,21 @@
 // Anonymous audience measurement — client side (see docs/ANALYTICS.md).
 //
-// The browser never talks to PostHog and loads no analytics library: events
-// are batched here and posted to our own server (/__ent_auth/analytics),
-// which validates them against server/analyticsSchema.js and forwards them.
-// Nothing is sent when the server has analytics disabled or when the user
-// switched "Statistiques anonymes" off in Mon compte.
+// Two cookieless, EU-hosted tools, both behind the "Statistiques anonymes"
+// switch in Mon compte:
+// - PostHog: the browser never talks to it. Events are batched here and
+//   posted to our own server (/__ent_auth/analytics), which validates them
+//   against server/analyticsSchema.js and forwards them. Only when the server
+//   has a PostHog key.
+// - Simple Analytics (production builds): page views only. Its script is
+//   loaded on demand with auto-collect off, and a page view is recorded only
+//   while the switch is on.
 import { useEffect, useRef, useSyncExternalStore } from 'react'
 import { ENT_AUTH_PREFIX } from './entApi'
 import { getStoredAnonymousAnalytics } from './profileStorage'
 
 const ANALYTICS_ENDPOINT = `${ENT_AUTH_PREFIX}/analytics`
+const SIMPLE_ANALYTICS_SCRIPT = 'https://scripts.simpleanalyticscdn.com/latest.js'
+const SIMPLE_ANALYTICS_ENABLED = import.meta.env.PROD
 const FLUSH_DELAY_MS = 2000
 const MAX_BATCH_SIZE = 20
 
@@ -18,7 +24,37 @@ let userEnabled = getStoredAnonymousAnalytics()
 let establishment = null
 let queue = []
 let flushTimer = 0
+let simpleAnalyticsRequested = false
+let simpleAnalyticsPageviewSent = false
 const listeners = new Set()
+
+// Loads Simple Analytics once the switch is known to be on, and records a
+// single page view per page load. With data-auto-collect="false" it records
+// nothing by itself, so switching off stops it even after the script loaded.
+function syncSimpleAnalytics() {
+  if (!SIMPLE_ANALYTICS_ENABLED || !userEnabled || typeof document === 'undefined') return
+
+  const sendPageview = () => {
+    if (!userEnabled || simpleAnalyticsPageviewSent || typeof window.sa_pageview !== 'function') return
+    simpleAnalyticsPageviewSent = true
+    window.sa_pageview(window.location.pathname)
+  }
+
+  if (simpleAnalyticsRequested) {
+    sendPageview()
+    return
+  }
+
+  simpleAnalyticsRequested = true
+  const script = document.createElement('script')
+  script.async = true
+  script.src = SIMPLE_ANALYTICS_SCRIPT
+  script.dataset.autoCollect = 'false'
+  script.addEventListener('load', sendPageview)
+  document.head.appendChild(script)
+}
+
+syncSimpleAnalytics()
 
 function isActive() {
   return serverEnabled && userEnabled
@@ -43,6 +79,7 @@ export function setAnalyticsAvailable(enabled) {
 export function setAnalyticsUserEnabled(enabled) {
   userEnabled = Boolean(enabled)
   if (!userEnabled) dropQueue()
+  syncSimpleAnalytics()
 }
 
 export function setAnalyticsEstablishment(establishmentId) {
@@ -54,10 +91,18 @@ function subscribe(listener) {
   return () => listeners.delete(listener)
 }
 
-// True when the server collects anonymous statistics (drives the About copy
-// and the Mon compte switch).
+export function isPostHogAvailable() {
+  return serverEnabled
+}
+
+export function isSimpleAnalyticsAvailable() {
+  return SIMPLE_ANALYTICS_ENABLED
+}
+
+// True when any anonymous measurement is active (drives the About copy, the
+// Mon compte switch and the privacy modal).
 export function useAnalyticsAvailable() {
-  return useSyncExternalStore(subscribe, () => serverEnabled, () => false)
+  return useSyncExternalStore(subscribe, () => serverEnabled || SIMPLE_ANALYTICS_ENABLED, () => false)
 }
 
 function getDevice() {
