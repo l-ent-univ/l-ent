@@ -8,8 +8,6 @@ import privacyHeader from '../assets/privacy-header.webp'
 // and doesn't do, in the illustrated style of the Figma presentation screens
 // (toutatice, node 543:959). Opened from Mon compte and from À propos.
 
-// Figma uses SF Pro Rounded; ui-rounded resolves to it on Apple devices.
-const ROUNDED_FONT = "ui-rounded, 'SF Pro Rounded', system-ui, sans-serif"
 const ANALYTICS_DOC_URL = universityConfig.branding.about?.repoUrl
   ? `${universityConfig.branding.about.repoUrl.replace(/\/$/, '')}/blob/main/docs/ANALYTICS.md`
   : null
@@ -71,12 +69,11 @@ function PrivacyModal({ open, onClose }) {
       role="presentation"
     >
       <section
-        className="privacy-modal relative w-[min(500px,100%)] max-h-[calc(100dvh-40px)] overflow-y-auto overflow-x-hidden rounded-[28px] border border-[var(--color-border)] bg-[#f5f3ed] text-[#341200] animate-modal-card-in dark:bg-[var(--color-bg)] dark:text-[var(--color-text)]"
+        className="privacy-modal relative font-body w-[min(500px,100%)] max-h-[calc(100dvh-40px)] overflow-y-auto overflow-x-hidden rounded-[28px] border border-[var(--color-border)] bg-[#f5f3ed] text-[#341200] animate-modal-card-in dark:bg-[var(--color-bg)] dark:text-[var(--color-text)]"
         role="dialog"
         aria-modal="true"
         aria-labelledby="privacy-modal-title"
         onClick={(event) => event.stopPropagation()}
-        style={{ fontFamily: ROUNDED_FONT }}
       >
         <button
           type="button"
@@ -98,10 +95,10 @@ function PrivacyModal({ open, onClose }) {
 
         <div className="flex flex-col items-center gap-7 px-7 pt-1 pb-7 text-center max-sm:px-5">
           <div className="flex flex-col items-center gap-2">
-            <p id="privacy-modal-title" role="heading" aria-level={2} className="m-0 text-[34px] font-bold leading-[0.95] tracking-[-0.01em] max-sm:text-[30px]">
+            <p id="privacy-modal-title" role="heading" aria-level={2} className="m-0 font-display text-[32px] font-semibold leading-[1.05] tracking-[-0.04em] max-sm:text-[28px]">
               Tes données restent à toi
             </p>
-            <p className="m-0 text-[16px] font-semibold leading-[1.15] tracking-[0.01em] opacity-90">
+            <p className="m-0 text-[15px] font-medium leading-[1.35] opacity-90">
               l’ent compte ses visites pour savoir ce qui sert vraiment et réparer ce qui casse. Rien de plus.
             </p>
           </div>
@@ -110,10 +107,10 @@ function PrivacyModal({ open, onClose }) {
             {SECTIONS.map((section) => (
               <div key={section.title} className="flex flex-col items-center gap-1.5">
                 <span className="privacy-modal-emoji text-[44px] leading-none" aria-hidden="true">{section.emoji}</span>
-                <p role="heading" aria-level={3} className="m-0 text-[21px] font-bold leading-[1]">
+                <p role="heading" aria-level={3} className="m-0 font-display text-[19px] font-semibold leading-[1.1] tracking-[-0.04em]">
                   {section.title}
                 </p>
-                <p className="m-0 text-[14.5px] font-semibold leading-[1.2] opacity-80">
+                <p className="m-0 text-[14px] font-medium leading-[1.35] opacity-80">
                   {section.body()}
                 </p>
               </div>
@@ -133,12 +130,12 @@ function PrivacyModal({ open, onClose }) {
                 href={ANALYTICS_DOC_URL}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-[13px] font-semibold underline underline-offset-2 opacity-70 hover:opacity-100"
+                className="text-[13px] font-medium underline underline-offset-2 opacity-70 hover:opacity-100"
               >
                 Voir le détail de ce qui est collecté
               </a>
             ) : null}
-            <p className="m-0 text-[15px] font-semibold">Pensé depuis Rennes 💚</p>
+            <p className="m-0 text-[14px] font-medium">Pensé depuis Rennes 💚</p>
           </div>
         </div>
       </section>
