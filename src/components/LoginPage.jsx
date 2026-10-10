@@ -129,26 +129,35 @@ function LoginPage({
             </div>
           </header>
 
+          {/* Real form with labelled username/current-password fields and a
+              submit button, so password managers recognize and offer to save
+              the login (the labels are visually hidden: the placeholders do
+              the job on screen). */}
           <form className="grid gap-[18px]" onSubmit={onSubmit}>
+            <label htmlFor="login-username" className="sr-only">Identifiant</label>
             <input
+              id="login-username"
               name="username"
               className="w-full min-h-[56px] py-[17px] px-[18px] login-field border border-white rounded-[53px] bg-widget-bg text-text font-inherit text-base leading-none box-border placeholder:text-text-muted placeholder:opacity-100 focus-visible:border-brand font-body"
               autoComplete="username"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
               type="text"
               placeholder="Identifiant"
-              aria-label="Identifiant"
               value={credentials.username}
               onChange={(event) => onCredentialsChange('username', event.target.value)}
             />
 
             <div className="relative">
+              <label htmlFor="login-password" className="sr-only">Mot de passe</label>
               <input
+                id="login-password"
                 name="password"
                 className="w-full min-h-[56px] py-[17px] px-[18px] pr-[52px] login-field border border-white rounded-[53px] bg-widget-bg text-text font-inherit text-base leading-none box-border placeholder:text-text-muted placeholder:opacity-100 focus-visible:border-brand font-body"
                 autoComplete="current-password"
                 type={showPassword ? 'text' : 'password'}
                 placeholder="Mot de passe"
-                aria-label="Mot de passe"
                 value={credentials.password}
                 onChange={(event) => onCredentialsChange('password', event.target.value)}
               />

@@ -522,9 +522,9 @@ export function createPlanningPortalApiClient({
     let token = ''
     let finalUrl = portalUrl
 
-    // A /portal JSESSIONID is persisted in our signed session cookie. It can
-    // mint a fresh short-lived bearer after a local server restart, even when
-    // the deliberately non-persisted CAS TGC is no longer available.
+    // A /portal JSESSIONID usually travels in our encrypted session cookie and
+    // can mint a fresh short-lived bearer directly; otherwise the CAS TGC
+    // (also in the cookie) signs us in below.
     try {
       token = await requestPortalAccessToken(jar)
     } catch {

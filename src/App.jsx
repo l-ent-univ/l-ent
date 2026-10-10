@@ -14,6 +14,7 @@ import OnboardingPage from './components/OnboardingPage'
 import PwaUpdateManager from './components/PwaUpdateManager'
 import UpdateNotice from './components/UpdateNotice'
 import { DEMO_CREDENTIALS, DEMO_SESSION_MODE } from './demoAccount'
+import { storeBrowserPasswordCredential } from './browserCredentials'
 import { syncRuntimeSeo } from './seo'
 import {
   ESTABLISHMENT_KEY,
@@ -2090,8 +2091,14 @@ function App() {
 
     try {
       const result = await loginToEnt(credentials)
-      track('login_result', { result: 'success', demo: result?.sessionMode === DEMO_SESSION_MODE })
+      const isDemo = result?.sessionMode === DEMO_SESSION_MODE
+      track('login_result', { result: 'success', demo: isDemo })
       flushAnalytics()
+      // Offer the accepted login to the browser's password manager (Chrome's
+      // Credential Management API; others rely on the form submission).
+      if (!isDemo) {
+        storeBrowserPasswordCredential(credentials)
+      }
       setCredentials((current) => ({
         ...current,
         password: '',

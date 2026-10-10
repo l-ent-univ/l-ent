@@ -47,7 +47,9 @@ function getRequestHost(req) {
 function createTenantApp(universityConfig, distDir) {
   const app = express()
 
-  app.use(createEntAuthApp(universityConfig))
+  // This is the production entry point: SESSION_SECRET is mandatory here and
+  // the session cookie is Secure/__Host- (see server/sessionCookie.js).
+  app.use(createEntAuthApp(universityConfig, { session: { production: true } }))
 
   app.get('/robots.txt', (req, res) => {
     const origin = getPublicOrigin(req)

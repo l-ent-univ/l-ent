@@ -13,10 +13,20 @@ const { branding } = await loadSharedConfig(universityId)
 
 // Dev/preview backend: the same Express app the production server mounts
 // (server/entAuthApp.js). Unmatched requests fall through to Vite.
-// POSTHOG_* may come from the shell or from .env / .env.local (shell wins).
+// POSTHOG_* and SESSION_SECRET* may come from the shell or from .env /
+// .env.local (shell wins). Without SESSION_SECRET the backend uses a random
+// per-process key: sessions then don't survive a dev-server restart.
 function mountEntAuthApp(server) {
-  const env = loadEnv(server.config.mode, server.config.envDir || process.cwd(), 'POSTHOG_')
-  const entAuthApp = createEntAuthApp(universityServerConfig, { analytics: readAnalyticsConfig(env) })
+  const env = loadEnv(server.config.mode, server.config.envDir || process.cwd(), ['POSTHOG_', 'SESSION_SECRET'])
+  const entAuthApp = createEntAuthApp(universityServerConfig, {
+    analytics: readAnalyticsConfig(env),
+    session: {
+      secret: env.SESSION_SECRET,
+      previousSecrets: env.SESSION_SECRET_PREVIOUS,
+      // Plain http://localhost: no Secure flag, no __Host- prefix.
+      production: false,
+    },
+  })
 
   server.middlewares.use(entAuthApp)
   server.httpServer?.once('close', () => {

@@ -79,7 +79,8 @@ Le serveur Express écoute sur le port `3000` (configurable via `PORT`).
 | Variable         | Description                                                        | Requis           |
 | ---------------- | ------------------------------------------------------------------ | ---------------- |
 | `PORT`           | Port du serveur (défaut : 3000)                                    | Non              |
-| `SESSION_SECRET` | Clé de signature des sessions                                      | Oui (production) |
+| `SESSION_SECRET` | Secret dont dérive la clé de chiffrement du cookie de session (≥ 32 octets, voir [Sécurité](#sécurité--confidentialité)) | Oui (production) |
+| `SESSION_SECRET_PREVIOUS` | Ancien(s) secret(s), séparés par des virgules, encore acceptés en lecture pendant une rotation | Non |
 | `UNIVERSITY`     | Université active, ou tenant par défaut (défaut : `univ-rennes`)   | Non              |
 | `MULTI_TENANT`   | `1` : sert plusieurs universités, routées par sous-domaine         | Non              |
 | `TENANTS`        | Universités servies/buildées en multi-tenant (ids séparés par `,`) | Non              |
@@ -105,13 +106,21 @@ Avec Docker (serveur perso, VPS…) : chaque merge sur `main` publie une image `
 
 - l'ent ne maintient pas de base de données applicative dédiée pour stocker les comptes étudiants.
 - Les données sont récupérées à la demande depuis les services de l'université configurée : CAS, ENT, ADE et Planning.
-- Les identifiants ENT ne sont pas stockés côté navigateur et ne sont pas sérialisés dans le cookie de session.
-- Pour conserver la compatibilité avec ADE, les identifiants peuvent être gardés temporairement en mémoire côté serveur pendant la session active, puis supprimés à la déconnexion ou à l'expiration de session.
+- Le mot de passe ne sert qu'à la requête de connexion au CAS : il n'est jamais conservé, ni côté navigateur, ni en mémoire serveur, ni dans le cookie. La session repose sur le ticket CAS (cookie `TGC`), qui ouvre ensuite ADE, Moodle, la messagerie ou ScoDoc sans mot de passe.
+- Le cookie de session (`__Host-lent_session` : `Secure`, `HttpOnly`, `SameSite=Lax`) contient une copie **chiffrée** (AES-256-GCM, clé dérivée de `SESSION_SECRET`) des cookies universitaires, dont le `TGC`. Il permet de rester connecté (30 jours glissants, plafonnés à 30 jours depuis la connexion, et en pratique à la durée de vie du ticket CAS côté université) et de rétablir la session en silence après un redémarrage du serveur.
+- La déconnexion ferme aussi la session CAS côté université (`/logout`), ce qui rend inutilisable toute copie du cookie.
 - Les caches sensibles côté client sont vidés à la déconnexion et lors d'un échec de rafraîchissement de session.
 - Le menu debug est réservé au mode développement et n'est pas exposé dans le build de production.
 - Le point d'entrée de connexion est protégé par un rate limiting basique contre les tentatives répétées.
 - Mesure d'audience anonyme optionnelle (désactivée sans `POSTHOG_PROJECT_KEY`) : sans cookie, envoyée depuis le serveur vers PostHog UE, identifiant quotidien non réversible, aucune note, aucun mail, aucun identifiant. Désactivable dans *Mon compte*. Détails et réglages PostHog obligatoires : **[docs/ANALYTICS.md](docs/ANALYTICS.md)**.
 - Le projet vise une surface de stockage minimale, mais un déploiement sérieux nécessite tout de même HTTPS et une variable `SESSION_SECRET` forte en production.
+
+### Auto-hébergement : secret de session
+
+- `node server.js` refuse de démarrer sans `SESSION_SECRET`, ou si elle fait moins de 32 octets (le code ne contient aucune clé de secours : c'est un dépôt public). Générez-la avec `openssl rand -base64 32`.
+- Le serveur de production exige HTTPS : le cookie porte le préfixe `__Host-` et l'attribut `Secure` (les navigateurs l'acceptent aussi sur `http://localhost`). En dev (`npm run dev`), sans `SESSION_SECRET` une clé aléatoire est tirée à chaque démarrage ; mettez-en une dans `.env.local` pour garder vos sessions entre deux redémarrages.
+- **Rotation sans déconnecter personne** : placez l'ancienne valeur dans `SESSION_SECRET_PREVIOUS` (plusieurs valeurs possibles, séparées par des virgules), mettez la nouvelle dans `SESSION_SECRET`, redéployez. Les anciens cookies sont relus puis ré-émis avec la nouvelle clé ; retirez `SESSION_SECRET_PREVIOUS` quelques jours plus tard.
+- **Kill switch** : changer `SESSION_SECRET` sans renseigner `SESSION_SECRET_PREVIOUS` invalide instantanément toutes les sessions (tout le monde doit se reconnecter).
 
 
 ## Architecture
