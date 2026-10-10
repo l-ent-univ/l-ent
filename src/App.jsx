@@ -41,6 +41,7 @@ import {
   flushAnalytics,
   setAnalyticsAvailable,
   setAnalyticsEstablishment,
+  setAnalyticsFormation,
   setAnalyticsUserEnabled,
   track,
   useAnalyticsAvailable,
@@ -1849,6 +1850,10 @@ function App() {
   useEffect(() => {
     setAnalyticsEstablishment(establishment)
   }, [establishment])
+
+  useEffect(() => {
+    setAnalyticsFormation(selectedTp?.programLabel ?? null)
+  }, [selectedTp?.programLabel])
 
   useEffect(() => {
     if (!isAccountModalOpen) {

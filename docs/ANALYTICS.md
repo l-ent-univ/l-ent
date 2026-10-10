@@ -41,6 +41,7 @@ Contexte ajouté automatiquement à chaque événement :
 | `standalone` | booléen | PWA installée (`display-mode: standalone`) |
 | `lang` | 2 lettres (`fr`, `en`…) | langue du navigateur |
 | `establishment` | id d'établissement de la config (`iutlan`, `ufrs`…) | établissement mémorisé (grands groupes) |
+| `formation` | identifiant court de la formation (`but-mmi`, `but-info`…, 32 caractères max) | niveau « formation » de la sélection ADE de l'étudiant, converti en slug. Jamais l'année, le TD ni le TP (groupes trop petits) |
 | `university` | id de l'université (`univ-rennes`) | **ajouté par le serveur**, depuis sa config |
 | `demo` | booléen | **ajouté par le serveur** depuis la session (compte démo ou non) |
 
