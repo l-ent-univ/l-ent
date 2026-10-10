@@ -12,6 +12,7 @@
 import { useEffect, useRef, useSyncExternalStore } from 'react'
 import { ENT_AUTH_PREFIX } from './entApi'
 import { getStoredAnonymousAnalytics } from './profileStorage'
+import { toFormationSlug } from './formationSlug'
 
 const ANALYTICS_ENDPOINT = `${ENT_AUTH_PREFIX}/analytics`
 const SIMPLE_ANALYTICS_SCRIPT = 'https://scripts.simpleanalyticscdn.com/latest.js'
@@ -22,6 +23,7 @@ const MAX_BATCH_SIZE = 20
 let serverEnabled = false
 let userEnabled = getStoredAnonymousAnalytics()
 let establishment = null
+let formation = null
 let queue = []
 let flushTimer = 0
 let simpleAnalyticsRequested = false
@@ -86,6 +88,10 @@ export function setAnalyticsEstablishment(establishmentId) {
   establishment = typeof establishmentId === 'string' && establishmentId ? establishmentId : null
 }
 
+export function setAnalyticsFormation(formationLabel) {
+  formation = toFormationSlug(formationLabel) || null
+}
+
 function subscribe(listener) {
   listeners.add(listener)
   return () => listeners.delete(listener)
@@ -138,6 +144,7 @@ function getContext() {
     standalone: isStandalone(),
     ...(/^[a-z]{2}$/.test(lang) ? { lang } : null),
     ...(establishment ? { establishment } : null),
+    ...(formation ? { formation } : null),
   }
 }
 

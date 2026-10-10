@@ -3,6 +3,7 @@ import { Buffer } from 'node:buffer'
 import test from 'node:test'
 import { createAnalytics, createDailyHasher, readAnalyticsConfig } from '../server/analytics.js'
 import { ANALYTICS_MAX_EVENTS_PER_BATCH, sanitizeAnalyticsBatch, sanitizeAnalyticsEvent } from '../server/analyticsSchema.js'
+import { toFormationSlug } from '../src/formationSlug.js'
 
 const DAY_1 = Date.parse('2026-10-08T10:00:00Z')
 const DAY_1_LATE = Date.parse('2026-10-08T23:59:59Z')
@@ -63,6 +64,7 @@ test('allowlist drops unknown events, unknown properties and free text', () => {
       browser: 'Mozilla/5.0',
       lang: 'fr-FR',
       establishment: 'Camille Martin',
+      formation: 'BUT MMI / TP 3',
       university: 'evil',
       demo: true,
       $ip: '1.2.3.4',
@@ -139,4 +141,15 @@ test('ingest hashes the session id and sets privacy flags', () => {
   })
   assert.match(withoutSession.distinctId, /^[0-9a-f-]{36}$/)
   assert.equal(withoutSession.properties.demo, false)
+})
+
+test('formation slug is short and only accepted as a slug', () => {
+  assert.equal(toFormationSlug('BUT MMI'), 'but-mmi')
+  assert.equal(toFormationSlug('Licence Économie-Gestion'), 'licence-economie-gestion')
+  assert.equal(toFormationSlug('   '), '')
+  assert.ok(toFormationSlug('x'.repeat(80)).length <= 32)
+  const kept = sanitizeAnalyticsEvent({ event: 'dashboard_viewed', properties: { formation: 'but-mmi' } }, { hasSession: true })
+  assert.deepEqual(kept.properties, { formation: 'but-mmi' })
+  const dropped = sanitizeAnalyticsEvent({ event: 'dashboard_viewed', properties: { formation: 'BUT MMI 2 — TP3' } }, { hasSession: true })
+  assert.deepEqual(dropped.properties, {})
 })

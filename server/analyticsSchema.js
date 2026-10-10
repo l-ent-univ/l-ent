@@ -35,6 +35,8 @@ export const CONTEXT_PROPERTIES = {
   lang: (value) => (typeof value === 'string' && /^[a-z]{2}$/.test(value) ? value : undefined),
   // Establishment id from the university config (e.g. "iutlan"): large groups.
   establishment: slug(16),
+  // Formation slug from the ADE selection (e.g. "but-mmi"): never year/TD/TP.
+  formation: slug(32),
 }
 
 // event name → { properties, required, refine, allowWithoutSession }
