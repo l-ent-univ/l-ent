@@ -11,7 +11,7 @@
 import express from 'express'
 import cookieParser from 'cookie-parser'
 import { createProxyMiddleware } from 'http-proxy-middleware'
-import { randomUUID, createHmac } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import {
   createAdeApiClient,
   getAdeSelectionLabels,
@@ -20,6 +20,17 @@ import {
 import { createAdeUpcomingResolver } from '../adeUpcomingResolver.js'
 import { createAnalytics, readAnalyticsConfig } from './analytics.js'
 import { ANALYTICS_MAX_BODY_BYTES } from './analyticsSchema.js'
+import {
+  LEGACY_SESSION_COOKIE_NAME,
+  MAX_PERSISTED_COOKIE_VALUE_LENGTH,
+  buildSessionCookieOptions,
+  createSessionCookieCodec,
+  fitSessionPayload,
+  getSessionCookieName,
+  isSessionDataExpired,
+  resolveSessionSecrets,
+  unpackJarCookies,
+} from './sessionCookie.js'
 import { createPlanningPortalApiClient } from '../planningPortalApi.js'
 import { createPlanningRpcClient } from '../planningRpc.js'
 import {
@@ -47,6 +58,10 @@ import {
 } from '../src/demoAccount.js'
 // options.analytics: { projectKey, host } — defaults to POSTHOG_PROJECT_KEY /
 // POSTHOG_HOST from the environment (analytics are off without a key).
+// options.session: { secret, previousSecrets, production } — defaults to
+// SESSION_SECRET / SESSION_SECRET_PREVIOUS and NODE_ENV === 'production'.
+// server.js (the production entry point) always passes production: true, the
+// Vite mount always passes false; tests inject a secret here.
 export function createEntAuthApp(universityConfig, options = {}) {
 const app = express()
 
@@ -131,12 +146,35 @@ function buildMoodleShibbolethLoginUrl(targetUrl = null) {
 }
 const WAYF_ENTITY_ID = universityConfig.moodle?.wayfEntityId ?? null
 const DEFAULT_REFERER = PORTAL_ENTRY_URL
+const HTML_ACCEPT_HEADER = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+// Apereo CAS logout endpoint: ends the single sign-on session (the TGT behind
+// the TGC cookie) on the university side.
+const CAS_LOGOUT_URL = `${CAS_ORIGIN}${universityConfig.auth.casLogoutPath ?? '/logout'}`
+const CAS_LOGOUT_TIMEOUT_MS = 4000
 
 function isCasHost(hostname) {
   return Boolean(hostname) && hostname === CAS_HOST
 }
-const LOCAL_SESSION_COOKIE = 'ent_front_session'
-const SESSION_TTL_MS = 8 * 60 * 60 * 1000
+
+// Session cookie: an encrypted copy of the upstream cookie jar (CAS TGC
+// included), see server/sessionCookie.js. In production the secret must come
+// from the environment and the cookie carries the __Host- prefix.
+const IS_PRODUCTION = options.session?.production ?? process.env.NODE_ENV === 'production'
+const sessionSecrets = resolveSessionSecrets({
+  secret: options.session?.secret ?? process.env.SESSION_SECRET,
+  previousSecrets: options.session?.previousSecrets ?? process.env.SESSION_SECRET_PREVIOUS,
+  production: IS_PRODUCTION,
+})
+const sessionCodec = createSessionCookieCodec({
+  secret: sessionSecrets.current,
+  previousSecrets: sessionSecrets.previous,
+})
+const SESSION_COOKIE_NAME = getSessionCookieName(IS_PRODUCTION)
+const SESSION_COOKIE_OPTIONS = buildSessionCookieOptions(IS_PRODUCTION)
+// In-memory sessions (full jar, caches) are dropped after this much idle time;
+// the cookie rebuilds them on the next request. The cookie itself follows the
+// rolling/absolute lifetimes in server/sessionCookie.js.
+const RUNTIME_SESSION_IDLE_TTL_MS = 24 * 60 * 60 * 1000
 const GRADES_CACHE_TTL_MS = 10 * 60 * 1000
 const MAIL_CACHE_TTL_MS = 2 * 60 * 1000
 const MOODLE_DEADLINES_CACHE_TTL_MS = 5 * 60 * 1000
@@ -147,10 +185,6 @@ const LOGIN_RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000
 const LOGIN_RATE_LIMIT_BLOCK_MS = 15 * 60 * 1000
 const LOGIN_RATE_LIMIT_MAX_ATTEMPTS_PER_IP = 10
 const LOGIN_RATE_LIMIT_MAX_ATTEMPTS_PER_USERNAME = 5
-const MAX_PERSISTED_COOKIE_VALUE_LENGTH = 1024
-// SESSION_SECRET must be set in production env vars (Render.com → Environment).
-// Without it, sessions will not survive server restarts.
-const SESSION_SECRET = process.env.SESSION_SECRET || 'dev-only-insecure-secret'
 const runtimeSessions = new Map()
 const runtimeGradesCache = new Map()
 // sessionId → { cachedAt, data }: short-lived inbox snapshot.
@@ -321,6 +355,18 @@ class CookieJar {
     return cookie?.value ?? null
   }
 
+  deleteCookiesForHost(hostname) {
+    for (const [key, cookie] of this.store.entries()) {
+      const matches = cookie.hostOnly
+        ? cookie.domain === hostname
+        : hostname === cookie.domain || hostname.endsWith(`.${cookie.domain}`)
+
+      if (matches) {
+        this.store.delete(key)
+      }
+    }
+  }
+
   serialize() {
     return Array.from(this.store.entries())
   }
@@ -339,51 +385,71 @@ function resolveUrl(location, currentUrl) {
 }
 
 // ---------------------------------------------------------------------------
-// Stateless cookie-based sessions (survives server restarts)
+// Stateless cookie-based sessions (survive server restarts)
 // ---------------------------------------------------------------------------
-function encodeSession(data) {
-  const payload = Buffer.from(JSON.stringify(data)).toString('base64url')
-  const sig = createHmac('sha256', SESSION_SECRET).update(payload).digest('base64url')
-  return `${payload}.${sig}`
-}
-
-function decodeSession(cookieValue) {
-  if (!cookieValue) return null
-  const lastDot = cookieValue.lastIndexOf('.')
-  if (lastDot === -1) return null
-  const payload = cookieValue.slice(0, lastDot)
-  const sig = cookieValue.slice(lastDot + 1)
-  const expected = createHmac('sha256', SESSION_SECRET).update(payload).digest('base64url')
-  if (sig !== expected) return null
-  try {
-    return JSON.parse(Buffer.from(payload, 'base64url').toString('utf-8'))
-  } catch {
-    return null
-  }
-}
-
-function isPersistableSessionCookie([, cookie]) {
-  if (!cookie || typeof cookie.value !== 'string') {
+// The cookie carries an encrypted copy of the upstream jar. The CAS TGC is the
+// one cookie that matters: with it, every service (ENT, ScoDoc, planning, ADE,
+// Moodle, webmail) can be signed in again without the password. Everything
+// else is a convenience that saves a round trip, ranked here most useful
+// first; the budget logic in setSessionCookie() drops from the end.
+function cookieMatchesHost(cookie, hostname) {
+  if (!hostname) {
     return false
   }
 
-  if (cookie.value.length > MAX_PERSISTED_COOKIE_VALUE_LENGTH) {
-    return false
-  }
-
-  if (cookie.domain === CAS_HOST && cookie.name === 'TGC') {
-    return false
-  }
-
-  return true
+  return cookie.hostOnly
+    ? cookie.domain === hostname
+    : hostname === cookie.domain || hostname.endsWith(`.${cookie.domain}`)
 }
 
-function buildPersistedSessionJar(session) {
+const PERSISTED_HOST_PRIORITY = [ENT_HOST, GRADES_ORIGIN ? new URL(GRADES_ORIGIN).hostname : null, PLANNING_HOST]
+  .filter(Boolean)
+
+function getPersistedCookiePriority(cookie) {
+  // Other CAS cookies (webflow session, locale…) are handed out again on every
+  // CAS visit: last.
+  if (cookieMatchesHost(cookie, CAS_HOST)) {
+    return PERSISTED_HOST_PRIORITY.length + 1
+  }
+
+  const index = PERSISTED_HOST_PRIORITY.findIndex((hostname) => cookieMatchesHost(cookie, hostname))
+  return index === -1 ? PERSISTED_HOST_PRIORITY.length : index
+}
+
+function selectPersistableCookies(session) {
   if (!(session?.jar instanceof CookieJar)) {
-    return []
+    return { required: [], optional: [] }
   }
 
-  return session.jar.serialize().filter(isPersistableSessionCookie)
+  const now = Date.now()
+  const required = []
+  const optional = []
+
+  for (const [, cookie] of session.jar.serialize()) {
+    if (!cookie || typeof cookie.value !== 'string') {
+      continue
+    }
+
+    if (cookie.expiresAt !== null && cookie.expiresAt <= now) {
+      continue
+    }
+
+    if (cookie.name === 'TGC' && cookieMatchesHost(cookie, CAS_HOST)) {
+      required.push(cookie)
+      continue
+    }
+
+    if (cookie.value.length > MAX_PERSISTED_COOKIE_VALUE_LENGTH) {
+      continue
+    }
+
+    optional.push(cookie)
+  }
+
+  // Stable sort: cookies of one host keep their jar order.
+  optional.sort((left, right) => getPersistedCookiePriority(left) - getPersistedCookiePriority(right))
+
+  return { required, optional }
 }
 
 function isDemoSession(session) {
@@ -398,7 +464,9 @@ function createDemoSession(overrides = {}) {
     jar: overrides.jar instanceof CookieJar ? overrides.jar : new CookieJar(),
     demoState: normalizeDemoState(overrides.demoState ?? createInitialDemoState()),
     createdAt: overrides.createdAt ?? Date.now(),
+    lastSeenAt: Date.now(),
     sessionSource: overrides.sessionSource ?? null,
+    legacyCookie: Boolean(overrides.legacyCookie),
   }
 }
 
@@ -501,17 +569,25 @@ function buildDemoRequestPayload(requestPath, session) {
   }
 }
 
+function dropRuntimeSession(sessionId) {
+  runtimeSessions.delete(sessionId)
+  runtimeGradesCache.delete(sessionId)
+  runtimeMailCache.delete(sessionId)
+  runtimeMailContexts.delete(sessionId)
+  runtimeMoodleDeadlinesCache.delete(sessionId)
+  runtimeMoodleContexts.delete(sessionId)
+}
+
+// Sliding idle timeout (last request seen), plus the absolute cap shared with
+// the cookie. Dropping an entry never signs the user out: the cookie restores
+// the session on the next request.
 function pruneRuntimeSessions() {
   const now = Date.now()
 
   for (const [sessionId, session] of runtimeSessions.entries()) {
-    if (!session?.createdAt || now - session.createdAt > SESSION_TTL_MS) {
-      runtimeSessions.delete(sessionId)
-      runtimeGradesCache.delete(sessionId)
-      runtimeMailCache.delete(sessionId)
-      runtimeMailContexts.delete(sessionId)
-      runtimeMoodleDeadlinesCache.delete(sessionId)
-      runtimeMoodleContexts.delete(sessionId)
+    const lastSeenAt = session?.lastSeenAt ?? session?.createdAt ?? 0
+    if (now - lastSeenAt > RUNTIME_SESSION_IDLE_TTL_MS || isSessionDataExpired(session, now)) {
+      dropRuntimeSession(sessionId)
     }
   }
 }
@@ -619,23 +695,40 @@ function clearMoodleCaches(sessionId) {
 
 function setSessionCookie(res, session) {
   pruneRuntimeSessions()
+  session.lastSeenAt = Date.now()
   runtimeSessions.set(session.id, session)
 
-  const data = {
-    id: session.id,
-    user: session.user,
-    mode: session.mode ?? null,
-    jar: buildPersistedSessionJar(session),
-    demoState: isDemoSession(session) ? normalizeDemoState(session.demoState) : null,
-    createdAt: session.createdAt,
-  }
-  res.cookie(LOCAL_SESSION_COOKIE, encodeSession(data), {
-    path: '/',
-    httpOnly: true,
-    sameSite: 'Lax',
-    secure: !!process.env.SESSION_SECRET,
-    maxAge: SESSION_TTL_MS,
+  const { payload, dropped } = fitSessionPayload({
+    data: {
+      id: session.id,
+      user: session.user,
+      mode: session.mode ?? null,
+      demoState: isDemoSession(session) ? normalizeDemoState(session.demoState) : null,
+      createdAt: session.createdAt,
+    },
+    ...selectPersistableCookies(session),
+    codec: sessionCodec,
   })
+
+  // Counts only — never cookie names or values.
+  if (dropped > 0 && session.droppedCookieCount !== dropped) {
+    session.droppedCookieCount = dropped
+    console.warn(`Session cookie budget: ${dropped} upstream cookie(s) kept in memory only.`)
+  }
+
+  res.cookie(SESSION_COOKIE_NAME, sessionCodec.encode(payload), SESSION_COOKIE_OPTIONS)
+
+  // Migration: the request authenticated with the old signed cookie, which the
+  // encrypted one now replaces.
+  if (session.legacyCookie) {
+    session.legacyCookie = false
+    res.clearCookie(LEGACY_SESSION_COOKIE_NAME, { path: '/' })
+  }
+}
+
+function clearSessionCookies(res) {
+  res.clearCookie(SESSION_COOKIE_NAME, SESSION_COOKIE_OPTIONS)
+  res.clearCookie(LEGACY_SESSION_COOKIE_NAME, { path: '/' })
 }
 
 function isRedirectStatus(statusCode) {
@@ -853,6 +946,73 @@ async function performEntLogin({ username, password }) {
   }
 }
 
+function isAuthenticatedLayout(layout) {
+  return Boolean(layout?.ok && layout.data && String(layout.data.authenticated) === 'true')
+}
+
+// Silent re-login: when the portal session lapsed (idle timeout, server
+// restart) but the jar still holds the CAS TGC, replay the login-time entry
+// (portal → CAS → portal with a service ticket) without any credentials. The
+// stale portal cookies are dropped first so the entry behaves exactly as at
+// login. Resolves to the authenticated layout, or null when the CAS no longer
+// honors the TGC (TGT expired, or killed by a logout).
+async function reestablishEntSession(session) {
+  if (!session.jar.hasCookie(CAS_HOST, 'TGC')) {
+    return null
+  }
+
+  session.jar.deleteCookiesForHost(ENT_HOST)
+  const entry = await followRedirectChain(PORTAL_ENTRY_URL, session.jar, {
+    headers: { Accept: HTML_ACCEPT_HEADER },
+  })
+  const html = await entry.response.text()
+
+  // Landed on the CAS login form: the CAS wants credentials again.
+  if (isCasHost(getHostnameFromUrl(entry.finalUrl)) && extractHiddenInputValue(html, 'execution')) {
+    return null
+  }
+
+  const layout = await fetchEntLayout(session.jar)
+  return isAuthenticatedLayout(layout) ? layout : null
+}
+
+// One re-login at a time per session: parallel requests from the same browser
+// share the in-flight attempt instead of racing on the jar.
+const entSessionRecoveryInflight = new Map()
+
+function reestablishEntSessionOnce(session) {
+  const inflight = entSessionRecoveryInflight.get(session.id)
+  if (inflight) {
+    return inflight
+  }
+
+  const promise = reestablishEntSession(session)
+    .catch(() => null)
+    .finally(() => entSessionRecoveryInflight.delete(session.id))
+  entSessionRecoveryInflight.set(session.id, promise)
+  return promise
+}
+
+// Best-effort CAS logout with the session jar, so the TGT behind the TGC we
+// carried is dead on the university side (a copy of the cookie becomes
+// useless). Failures are ignored: the local session is cleared regardless.
+async function terminateCasSession(jar) {
+  if (!jar?.hasCookie(CAS_HOST, 'TGC')) {
+    return
+  }
+
+  try {
+    const response = await fetchWithJar(CAS_LOGOUT_URL, jar, {
+      headers: { Accept: HTML_ACCEPT_HEADER },
+      redirect: 'manual',
+      signal: AbortSignal.timeout(CAS_LOGOUT_TIMEOUT_MS),
+    })
+    await response.arrayBuffer().catch(() => null)
+  } catch {
+    // Timeout or network error: nothing more to do.
+  }
+}
+
 // One ScoDoc sign-in at a time per cookie jar: concurrent doAuth runs (grades
 // widget + profile photo on dashboard load) overwrite each other's PHP session,
 // and the loser's data.php call answers { redirect } instead of grades.
@@ -1003,35 +1163,58 @@ function getSessionLaunchCapabilities(session) {
   }
 }
 
+// The encrypted cookie wins; the legacy signed cookie is only consulted when
+// no readable encrypted one is present (first request after the switch).
+function readSessionCookie(req) {
+  const current = sessionCodec.decode(req.cookies?.[SESSION_COOKIE_NAME])
+  if (current) {
+    return { ...current, legacyCookie: false }
+  }
+
+  const legacy = sessionCodec.decode(req.cookies?.[LEGACY_SESSION_COOKIE_NAME])
+  return legacy ? { ...legacy, legacyCookie: true } : null
+}
+
 function getSessionFromRequest(req) {
   pruneRuntimeSessions()
 
-  const data = decodeSession(req.cookies[LOCAL_SESSION_COOKIE])
-  if (!data) return null
+  const decoded = readSessionCookie(req)
+  const data = decoded?.data
+  if (!data || typeof data.id !== 'string' || !data.id || isSessionDataExpired(data)) {
+    return null
+  }
 
   const runtimeSession = runtimeSessions.get(data.id)
   if (runtimeSession) {
     runtimeSession.sessionSource = 'runtime'
+    runtimeSession.lastSeenAt = Date.now()
+    runtimeSession.legacyCookie = decoded.legacyCookie
     return runtimeSession
   }
 
-  if (data.mode === DEMO_SESSION_MODE) {
-    return createDemoSession({
-      id: data.id,
-      user: data.user,
-      demoState: data.demoState,
-      createdAt: data.createdAt,
-      sessionSource: 'cookie',
-    })
-  }
+  const session = data.mode === DEMO_SESSION_MODE
+    ? createDemoSession({
+        id: data.id,
+        user: data.user,
+        demoState: data.demoState,
+        createdAt: data.createdAt,
+        sessionSource: 'cookie',
+        legacyCookie: decoded.legacyCookie,
+      })
+    : {
+        id: data.id,
+        user: data.user,
+        jar: CookieJar.fromSerialized(unpackJarCookies(data.jar)),
+        createdAt: data.createdAt,
+        lastSeenAt: Date.now(),
+        sessionSource: 'cookie',
+        legacyCookie: decoded.legacyCookie,
+      }
 
-  return {
-    id: data.id,
-    user: data.user,
-    jar: CookieJar.fromSerialized(data.jar),
-    createdAt: data.createdAt,
-    sessionSource: 'cookie',
-  }
+  // Registered right away so concurrent requests restored from the same cookie
+  // share one jar (and the per-jar/per-id sign-in locks actually apply).
+  runtimeSessions.set(session.id, session)
+  return session
 }
 
 function getHostnameFromUrl(value) {
@@ -1078,36 +1261,10 @@ function buildMoodleWayfRequest(pageUrl) {
   }
 }
 
-function buildCasLoginRequest(html, pageUrl, credentials, acceptHeader) {
-  const username = String(credentials?.username ?? '').trim()
-  const password = String(credentials?.password ?? '')
-  const execution = extractHiddenInputValue(html, 'execution')
-
-  if (!execution) {
-    return null
-  }
-
-  if (!username || !password) {
-    throw new Error('Missing runtime credentials for Moodle launch.')
-  }
-
-  const actionUrl = extractFormAction(html, pageUrl)
-  return {
-    actionUrl,
-    headers: {
-      Accept: acceptHeader,
-      'Content-Type': 'application/x-www-form-urlencoded',
-      Origin: new URL(actionUrl).origin,
-      Referer: pageUrl,
-    },
-    body: new URLSearchParams({
-      username,
-      password,
-      execution,
-      _eventId: extractHiddenInputValue(html, '_eventId') || 'submit',
-      geolocation: extractHiddenInputValue(html, 'geolocation'),
-    }).toString(),
-  }
+// The CAS login form showed up in a server-side SSO chain: the TGT behind our
+// TGC is gone and we never keep credentials, so the chain stops here.
+function isCasLoginForm(html, pageUrl) {
+  return isCasHost(getHostnameFromUrl(pageUrl)) && Boolean(extractHiddenInputValue(html, 'execution'))
 }
 
 function parseFormFields(formBody) {
@@ -1199,13 +1356,8 @@ async function prepareMoodleLaunchRelay(session, targetUrl = null) {
       continue
     }
 
-    const casLoginRequest = buildCasLoginRequest(html, currentUrl, session.credentials, acceptHeader)
-    if (casLoginRequest && isCasHost(getHostnameFromUrl(casLoginRequest.actionUrl))) {
-      currentUrl = casLoginRequest.actionUrl
-      currentMethod = 'POST'
-      currentBody = casLoginRequest.body
-      currentHeaders = casLoginRequest.headers
-      continue
+    if (isCasLoginForm(html, currentUrl)) {
+      throw new Error('CAS session expired; sign in again to open Moodle.')
     }
 
     throw new Error('Unable to prepare the Moodle SSO handoff.')
@@ -1214,80 +1366,10 @@ async function prepareMoodleLaunchRelay(session, targetUrl = null) {
   throw new Error('Too many steps while preparing Moodle launch.')
 }
 
-async function prepareMoodleBrowserBootstrap(credentials) {
-  const username = String(credentials?.username ?? '').trim()
-  const password = String(credentials?.password ?? '')
-
-  if (!username || !password) {
-    throw new Error('Missing runtime credentials for Moodle launch.')
-  }
-
-  const browserJar = new CookieJar()
-  const acceptHeader = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
-
-  const wayfPageResult = await followRedirectChain(MOODLE_SHIBBOLETH_LOGIN_URL, browserJar, {
-    headers: { Accept: acceptHeader },
-  })
-  const wayfPageHtml = await wayfPageResult.response.text()
-  const wayfActionUrl = extractFormAction(wayfPageHtml, wayfPageResult.finalUrl)
-  const wayfBody = new URLSearchParams({
-    user_idp: WAYF_ENTITY_ID,
-    Select: 'Sélection',
-  }).toString()
-
-  const wayfSubmitResponse = await fetchWithJar(wayfActionUrl, browserJar, {
-    method: 'POST',
-    headers: {
-      Accept: acceptHeader,
-      'Content-Type': 'application/x-www-form-urlencoded',
-      Origin: new URL(wayfActionUrl).origin,
-      Referer: wayfPageResult.finalUrl,
-    },
-    body: wayfBody,
-    redirect: 'manual',
-  })
-
-  if (!isRedirectStatus(wayfSubmitResponse.status)) {
-    throw new Error('Unable to prepare the Moodle identity-provider handoff.')
-  }
-
-  const wayfLocation = wayfSubmitResponse.headers.get('location')
-  if (!wayfLocation) {
-    throw new Error('Moodle WAYF handoff did not return a redirect target.')
-  }
-
-  const browserWarmupUrl = resolveUrl(wayfLocation, wayfActionUrl)
-  const casLoginResult = await followRedirectChain(browserWarmupUrl, browserJar, {
-    headers: { Accept: acceptHeader },
-  })
-  const casLoginHtml = await casLoginResult.response.text()
-  const execution = extractHiddenInputValue(casLoginHtml, 'execution')
-
-  if (!execution) {
-    throw new Error('Unable to prepare the Rennes CAS login form for Moodle.')
-  }
-
-  return {
-    warmupUrl: browserWarmupUrl,
-    actionUrl: extractFormAction(casLoginHtml, casLoginResult.finalUrl),
-    fields: {
-      username,
-      password,
-      execution,
-      _eventId: extractHiddenInputValue(casLoginHtml, '_eventId') || 'submit',
-      geolocation: extractHiddenInputValue(casLoginHtml, 'geolocation'),
-    },
-  }
-}
-
-function buildAutoSubmitPage({ title, heading, body, actionUrl, fields, warmupUrl = '' }) {
+function buildAutoSubmitPage({ title, heading, body, actionUrl, fields }) {
   const hiddenFields = Object.entries(fields).map(([name, value]) => (
     `<input type="hidden" name="${escapeHtmlAttribute(name)}" value="${escapeHtmlAttribute(value)}" />`
   )).join('')
-  const serializedWarmupUrl = JSON.stringify(String(warmupUrl ?? ''))
-  const warmupFrame = warmupUrl
-    ? '<iframe id="warmup" title="" aria-hidden="true" tabindex="-1" style="display:none"></iframe>'
-    : ''
 
   return `<!DOCTYPE html>
 <html lang="fr">
@@ -1314,39 +1396,12 @@ function buildAutoSubmitPage({ title, heading, body, actionUrl, fields, warmupUr
         ${hiddenFields}
         <noscript><button type="submit">Continuer</button></noscript>
       </form>
-      ${warmupFrame}
     </section>
   </main>
   <script>
     window.addEventListener('load', function () {
       const form = document.getElementById('handoff')
-      if (!form) return
-
-      const warmupUrl = ${serializedWarmupUrl}
-      if (!warmupUrl) {
-        form.submit()
-        return
-      }
-
-      const iframe = document.getElementById('warmup')
-      let submitted = false
-      const submitForm = function () {
-        if (submitted) return
-        submitted = true
-        form.submit()
-      }
-
-      if (!iframe) {
-        submitForm()
-        return
-      }
-
-      iframe.addEventListener('load', function () {
-        window.setTimeout(submitForm, 120)
-      }, { once: true })
-
-      iframe.src = warmupUrl
-      window.setTimeout(submitForm, 4000)
+      if (form) form.submit()
     })
   </script>
 </body>
@@ -1374,7 +1429,7 @@ async function previewServerLaunch(targetUrl, session) {
 
   const launchCapabilities = getSessionLaunchCapabilities(session)
   if (isMoodleLaunchTarget(targetUrl)) {
-    if (launchCapabilities.canUseServerLaunch || (session?.credentials?.username && session?.credentials?.password)) {
+    if (launchCapabilities.canUseServerLaunch) {
       return {
         finalUrl: targetUrl,
         chain: [],
@@ -2006,11 +2061,17 @@ app.get('/__ent_auth/session', async (req, res) => {
       })
     }
 
-    const layout = await fetchEntLayout(session.jar)
+    let layout = await fetchEntLayout(session.jar)
 
-    if (!layout.ok || !layout.data || String(layout.data.authenticated) !== 'true') {
+    // Portal session lapsed: sign in again silently with the CAS TGC.
+    if (!isAuthenticatedLayout(layout)) {
+      layout = await reestablishEntSessionOnce(session)
+    }
+
+    if (!layout) {
+      dropRuntimeSession(session.id)
       clearSensitiveSessionCaches(session)
-      res.clearCookie(LOCAL_SESSION_COOKIE)
+      clearSessionCookies(res)
       return res.status(200).json({
         authenticated: false,
         user: null,
@@ -2078,16 +2139,18 @@ app.post('/__ent_auth/login', async (req, res) => {
 
     const result = await performEntLogin({ username, password })
     clearLoginRateLimit(req, username)
+    // The password lives only in this request: the session keeps the CAS TGC,
+    // which signs in to every service (ENT, ADE, Moodle, webmail…) on its own.
     const session = {
       id: randomUUID(),
       user: result.layout.user,
       jar: result.jar,
-      credentials: { username, password },
       createdAt: Date.now(),
+      lastSeenAt: Date.now(),
     }
 
-    // Prime the ADE session cache while we still have the fresh login credentials,
-    // but never persist those credentials on the long-lived app session.
+    // Prime the ADE session cache while the credentials are still in hand
+    // (later refreshes go through the CAS with the TGC).
     try {
       await authenticateToAde(result.jar, { username, password }, {
         cacheScope: getPlanningCacheScope(session),
@@ -2341,43 +2404,9 @@ app.get('/__ent_auth/launch', async (req, res) => {
       }))
       return
     } catch (error) {
-      if (session?.credentials?.username && session?.credentials?.password) {
-        try {
-          const bootstrap = await prepareMoodleBrowserBootstrap(session.credentials)
-
-          if (debug) {
-            return res.json({
-              finalUrl: bootstrap.actionUrl,
-              chain: [],
-              useServerLaunch: true,
-              reason: 'browser-cas-bootstrap',
-            })
-          }
-
-          res.setHeader('Cache-Control', 'no-store')
-          res.setHeader('Content-Type', 'text/html; charset=utf-8')
-          res.status(200).send(buildAutoSubmitPage({
-            title: 'Connexion Moodle',
-            heading: 'Connexion a Moodle en cours',
-            body: 'Ouverture de votre session universitaire pour Moodle...',
-            actionUrl: bootstrap.actionUrl,
-            fields: bootstrap.fields,
-            warmupUrl: bootstrap.warmupUrl,
-          }))
-          return
-        } catch (bootstrapError) {
-          if (debug) {
-            return res.json({
-              finalUrl: targetUrl,
-              chain: [],
-              useServerLaunch: false,
-              reason: 'moodle-launch-error',
-              error: bootstrapError instanceof Error ? bootstrapError.message : String(bootstrapError),
-              relayError: error instanceof Error ? error.message : String(error),
-            })
-          }
-        }
-      } else if (debug) {
+      // No server-side relay possible (TGT expired, unexpected page): the
+      // browser completes the Moodle sign-in itself.
+      if (debug) {
         return res.json({
           finalUrl: targetUrl,
           chain: [],
@@ -2982,8 +3011,7 @@ async function establishMoodleContext(session) {
     throw new Error('Moodle is not configured for this university.')
   }
 
-  const hasCredentials = Boolean(session?.credentials?.username && session?.credentials?.password)
-  if (!getSessionLaunchCapabilities(session).canUseServerLaunch && !hasCredentials) {
+  if (!getSessionLaunchCapabilities(session).canUseServerLaunch) {
     throw new MoodleAuthError('CAS session unavailable for Moodle; please sign in again.')
   }
 
@@ -2992,7 +3020,6 @@ async function establishMoodleContext(session) {
   let currentMethod = 'GET'
   let currentBody
   let currentHeaders = { Accept: MOODLE_ACCEPT_HTML }
-  let casFormSubmitted = false
 
   const goTo = (url, method = 'GET', body = undefined, headers = { Accept: MOODLE_ACCEPT_HTML }) => {
     currentUrl = url
@@ -3031,18 +3058,8 @@ async function establishMoodleContext(session) {
       return { jar, sesskey, createdAt: Date.now() }
     }
 
-    if (isCasHost(getHostnameFromUrl(currentUrl)) && extractHiddenInputValue(html, 'execution')) {
-      // TGC gone (e.g. cookie-restored session): fall back to the login-time
-      // credentials kept on runtime sessions, once.
-      const casLoginRequest = !casFormSubmitted && hasCredentials
-        ? buildCasLoginRequest(html, currentUrl, session.credentials, MOODLE_ACCEPT_HTML)
-        : null
-      if (!casLoginRequest || !isCasHost(getHostnameFromUrl(casLoginRequest.actionUrl))) {
-        throw new MoodleAuthError('CAS session expired; please sign in again to load Moodle.')
-      }
-      casFormSubmitted = true
-      goTo(casLoginRequest.actionUrl, 'POST', casLoginRequest.body, casLoginRequest.headers)
-      continue
+    if (isCasLoginForm(html, currentUrl)) {
+      throw new MoodleAuthError('CAS session expired; please sign in again to load Moodle.')
     }
 
     if (/name=["']user_idp["']/i.test(html)) {
@@ -3623,7 +3640,7 @@ app.get('/__ent_auth/ade/search', async (req, res) => {
       })
     }
 
-    const authResult = await authenticateToAde(entSession.jar, entSession.credentials, {
+    const authResult = await authenticateToAde(entSession.jar, null, {
       cacheScope: getPlanningCacheScope(entSession),
     })
     const result = await fetchAdeApi(`/timetable/vetSearch?q=${encodeURIComponent(query)}`, authResult.session)
@@ -3820,7 +3837,8 @@ app.post('/__ent_auth/ade/upcoming', async (req, res) => {
       })
     }
 
-    const upcoming = await resolveAdeUpcoming(entSession.jar, entSession.credentials, {
+    // No credentials: the ADE mobile API is reached through the CAS with the TGC.
+    const upcoming = await resolveAdeUpcoming(entSession.jar, null, {
       date: requestedDate,
       lookaheadDays,
       resourceIds,
@@ -3898,7 +3916,7 @@ app.get('/__ent_auth/ade/alerts', async (req, res) => {
       })
     }
 
-    const authResult = await authenticateToAde(entSession.jar, entSession.credentials, {
+    const authResult = await authenticateToAde(entSession.jar, null, {
       cacheScope: getPlanningCacheScope(entSession),
     })
     const etabsVets = req.query.etabsVets || ''
@@ -3914,15 +3932,20 @@ app.get('/__ent_auth/ade/alerts', async (req, res) => {
   }
 })
 
-// 14. Logout Endpoint
-app.post('/__ent_auth/logout', (req, res) => {
+// 14. Logout Endpoint — also ends the CAS single sign-on session (best effort,
+// short timeout) so the TGC that travelled in the cookie is dead upstream.
+app.post('/__ent_auth/logout', async (req, res) => {
   const session = getSessionFromRequest(req)
   if (session?.id) {
-    runtimeSessions.delete(session.id)
+    dropRuntimeSession(session.id)
     clearSensitiveSessionCaches(session)
+
+    if (!isDemoSession(session)) {
+      await terminateCasSession(session.jar)
+    }
   }
 
-  res.clearCookie(LOCAL_SESSION_COOKIE)
+  clearSessionCookies(res)
   res.status(200).json({
     authenticated: false,
   })
