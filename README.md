@@ -99,6 +99,8 @@ Une requête est associée à l'université dont le premier label du hostname é
 
 Sur Render (plan gratuit) : build command `npm install && npm run build:all`, start command `MULTI_TENANT=1 node server.js`, puis ajoutez chaque sous-domaine comme *custom domain* du service (un CNAME + une entrée Render par université ; un certificat TLS classique est émis par hostname, pas besoin de wildcard).
 
+Avec Docker (serveur perso, VPS…) : chaque merge sur `main` publie une image `ghcr.io/l-ent-univ/l-ent`, voir [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md) (Docker Compose + Caddy pour le HTTPS).
+
 ## Sécurité & confidentialité
 
 - l'ent ne maintient pas de base de données applicative dédiée pour stocker les comptes étudiants.

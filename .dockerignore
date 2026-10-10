@@ -1,0 +1,19 @@
+# Keep the build context small and free of secrets.
+.git
+.github
+node_modules
+dist
+build
+outputs
+ios
+name-lab
+**/.env
+**/.env.*
+!.env.example
+deploy
+*.log
+.DS_Store
+.vscode
+.idea
+.claude
+SECURITY_REVIEW.md

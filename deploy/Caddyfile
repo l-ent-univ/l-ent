@@ -1,0 +1,6 @@
+# Replace with your domain. Caddy gets and renews the TLS certificate and
+# forwards X-Forwarded-Proto/Host, which the server uses for its public URL.
+lent.example.fr {
+	encode zstd gzip
+	reverse_proxy lent:3000
+}
