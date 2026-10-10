@@ -1,0 +1,30 @@
+# Self-hosting l'ent with Docker: the app + Caddy for automatic HTTPS.
+# Usage (see docs/SELF_HOSTING.md):
+#   1. copy this folder to the server, create .env next to it (SESSION_SECRET…)
+#   2. replace lent.example.fr in Caddyfile with your domain (DNS A/AAAA → server)
+#   3. docker compose up -d
+services:
+  lent:
+    image: ghcr.io/l-ent-univ/l-ent:latest
+    restart: unless-stopped
+    env_file: .env
+    expose:
+      - "3000"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - lent
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:
