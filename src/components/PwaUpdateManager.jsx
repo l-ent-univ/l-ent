@@ -8,6 +8,74 @@ const LOCAL_PWA_RESET_KEY = 'l-ent:local-pwa-reset'
 const UPDATE_PROMPT_TITLE = 'Une nouvelle version est prête'
 const UPDATE_PROMPT_DESCRIPTION = "Une nouvelle version de l'ent est disponible. Applique-la maintenant pour récupérer les derniers changements."
 
+// Updates are announced discreetly (the small "Nouvelle version" notice in the
+// sidebar / header), never with the big prompt. If the student doesn't click
+// it, the update applies itself at the start of the Nth launch that finds it
+// waiting — right after the page loads, never while they're typing.
+const AUTO_UPDATE_AFTER_LAUNCHES = 3
+const PENDING_UPDATE_LAUNCHES_KEY = 'l-ent:pending-update-launches'
+// Only apply automatically when the update is found at startup, not when a
+// new version lands in the middle of a session.
+const STARTUP_WINDOW_MS = 15_000
+
+let launchCountedThisPageLoad = false
+
+function readPendingLaunches() {
+  try {
+    return Number(localStorage.getItem(PENDING_UPDATE_LAUNCHES_KEY)) || 0
+  } catch {
+    return 0
+  }
+}
+
+function writePendingLaunches(count) {
+  try {
+    if (count > 0) {
+      localStorage.setItem(PENDING_UPDATE_LAUNCHES_KEY, String(count))
+    } else {
+      localStorage.removeItem(PENDING_UPDATE_LAUNCHES_KEY)
+    }
+  } catch {
+    // Storage unavailable: the notice still works, only auto-update is skipped.
+  }
+}
+
+// Counts this page load as one launch with an update waiting (once per load)
+// and returns the running total.
+function countPendingUpdateLaunch() {
+  if (launchCountedThisPageLoad) {
+    return readPendingLaunches()
+  }
+  launchCountedThisPageLoad = true
+  const count = readPendingLaunches() + 1
+  writePendingLaunches(count)
+  return count
+}
+
+function isAtStartup() {
+  return typeof performance !== 'undefined' && performance.now() < STARTUP_WINDOW_MS
+}
+
+// Activates the waiting service worker directly and reloads once it controls
+// the page. The plugin's own skip-waiting path can lag ~30 s when called right
+// after startup; posting to registration.waiting takes effect immediately.
+async function activateWaitingWorker() {
+  const registration = await navigator.serviceWorker?.getRegistration()
+  const waiting = registration?.waiting
+  if (!waiting) {
+    return false
+  }
+
+  navigator.serviceWorker.addEventListener('controllerchange', () => window.location.reload(), { once: true })
+  waiting.postMessage({ type: 'SKIP_WAITING' })
+  return true
+}
+
+function isUserTyping() {
+  const element = document.activeElement
+  return Boolean(element && (element.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(element.tagName)))
+}
+
 function isLocalPwaHost(hostname = '') {
   return LOCAL_PWA_HOSTS.has(hostname) || hostname.endsWith('.local')
 }
@@ -88,27 +156,41 @@ function LocalPwaManager({ forceOpen, onForceOpenChange, onApplyHandlerChange })
 function ProductionPwaManager({ forceOpen, onForceOpenChange, onUpdateAvailable, onApplyHandlerChange }) {
   const [isApplyingUpdate, setIsApplyingUpdate] = useState(false)
   const [hasPendingUpdate, setHasPendingUpdate] = useState(false)
+  const [shouldAutoApply, setShouldAutoApply] = useState(false)
   const {
-    needRefresh: [needRefresh, setNeedRefresh],
+    needRefresh: [needRefresh],
     updateServiceWorker,
   } = useRegisterSW({
     onNeedRefresh() {
       setIsApplyingUpdate(false)
       setHasPendingUpdate(true)
       onUpdateAvailable?.()
+
+      const launches = countPendingUpdateLaunch()
+      if (launches >= AUTO_UPDATE_AFTER_LAUNCHES && isAtStartup()) {
+        setShouldAutoApply(true)
+      }
+    },
+    onRegisteredSW(_swUrl, registration) {
+      // No update waiting at launch (applied, or installed when all tabs were
+      // closed): restart the launch count for the next one.
+      if (!registration?.waiting && !launchCountedThisPageLoad) {
+        writePendingLaunches(0)
+      }
     },
     onRegisterError(error) {
       console.error('PWA registration failed', error)
     },
   })
 
-  const visible = forceOpen || needRefresh
+  // The big prompt only opens on demand (debug panel preview); a detected
+  // update shows the small notice instead.
+  const visible = forceOpen
 
   const dismissPrompt = useCallback(() => {
     setIsApplyingUpdate(false)
-    setNeedRefresh(false)
     onForceOpenChange(false)
-  }, [onForceOpenChange, setNeedRefresh])
+  }, [onForceOpenChange])
 
   const applyUpdate = useCallback(async () => {
     if (isApplyingUpdate) {
@@ -116,13 +198,16 @@ function ProductionPwaManager({ forceOpen, onForceOpenChange, onUpdateAvailable,
     }
 
     setIsApplyingUpdate(true)
+    writePendingLaunches(0)
     // Sent right away: applying the update reloads the page.
     track('pwa_update_applied')
     flushAnalytics()
 
     try {
       if (needRefresh || hasPendingUpdate) {
-        await updateServiceWorker(true)
+        if (!(await activateWaitingWorker())) {
+          await updateServiceWorker(true)
+        }
         return
       }
 
@@ -138,6 +223,15 @@ function ProductionPwaManager({ forceOpen, onForceOpenChange, onUpdateAvailable,
     onApplyHandlerChange?.(applyUpdate)
     return () => onApplyHandlerChange?.(null)
   }, [applyUpdate, onApplyHandlerChange])
+
+  // Nth launch with the update still waiting: apply it now, at startup.
+  useEffect(() => {
+    if (!shouldAutoApply) return
+    setShouldAutoApply(false)
+    if (!isUserTyping()) {
+      void applyUpdate()
+    }
+  }, [applyUpdate, shouldAutoApply])
 
   return (
     <RefreshedPrompt
