@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { Icon } from '@iconify/react'
 import renameNoticeImage from '../assets/login/rename-notice.webp'
-import { buildSettingsTransferUrl } from '../settingsTransfer'
+import { moveToTafac } from '../settingsTransfer'
 
 // Same look as UpdateNotice, shown where it is on the dashboard.
 export function TafacMoveBanner({ onOpen, className = '' }) {
@@ -26,15 +26,9 @@ export function TafacMoveBanner({ onOpen, className = '' }) {
 }
 
 // Bottom sheet sending users of the old l'ent address to Tafac with their
-// settings (see settingsTransfer.js).
+// settings, once and for all (see settingsTransfer.js).
 export default function TafacMoveNotice({ open, onClose }) {
   const [animatingOut, setAnimatingOut] = useState(false)
-  const [transferUrl, setTransferUrl] = useState('')
-
-  // Built when the sheet opens so it carries the latest settings.
-  useEffect(() => {
-    if (open) setTransferUrl(buildSettingsTransferUrl())
-  }, [open])
 
   const dismiss = useCallback(() => {
     setAnimatingOut(true)
@@ -71,18 +65,8 @@ export default function TafacMoveNotice({ open, onClose }) {
               l'ent devient Tafac !
             </h2>
             <p className="m-0 text-[0.9rem] text-text-muted font-body leading-snug">
-              l'ent change de nom, maintenant c'est Tafac ! Y'a que le nom qui change : c'est toujours la même appli sécurisée, faite par des étudiants, avec tous tes services au même endroit
+              C'est la même appli, avec un nouveau nom. Appuie sur « Passer à Tafac » : tes réglages sont transférés une bonne fois pour toutes, et la prochaine fois tu arriveras directement sur tafac.fr. Tes identifiants ne changent pas
             </p>
-            <p className="m-0 text-[0.9rem] text-text-muted font-body leading-snug">
-              Pour te connecter, rien ne change : utilise toujours les identifiants de ton université
-            </p>
-            <div className="mt-1 flex items-center gap-3 rounded-2xl border border-border bg-bg-subtle px-3.5 py-3 text-text">
-              <Icon icon="carbon:settings-adjust" className="h-5 w-5 shrink-0 text-text-muted" aria-hidden="true" />
-              <span className="flex min-w-0 flex-col gap-0.5 font-body leading-snug">
-                <span className="text-[0.9rem] font-semibold">Tes réglages te suivent</span>
-                <span className="text-[0.8rem] text-text-muted">Ton groupe, tes favoris et tes couleurs passent sur Tafac. Pense ensuite à l'ajouter sur ton écran d'accueil</span>
-              </span>
-            </div>
           </div>
           <div className="grid grid-cols-2 border-t border-border">
             <button
@@ -92,17 +76,14 @@ export default function TafacMoveNotice({ open, onClose }) {
             >
               Plus tard
             </button>
-            {/* A new tab: from an installed app this opens the real browser,
-                where Tafac can then be added to the home screen. */}
-            <a
-              href={transferUrl}
-              target="_blank"
-              rel="noopener"
-              className="inline-flex items-center justify-center gap-2 py-3.5 bg-bg-subtle text-text font-body font-semibold text-[0.95rem] no-underline active:bg-bg transition-colors"
+            <button
+              type="button"
+              onClick={moveToTafac}
+              className="inline-flex items-center justify-center gap-2 py-3.5 border-0 bg-bg-subtle text-text font-body font-semibold text-[0.95rem] active:bg-bg transition-colors"
             >
               Passer à Tafac
               <Icon icon="carbon:arrow-right" className="h-4 w-4" aria-hidden="true" />
-            </a>
+            </button>
           </div>
         </div>
       </div>

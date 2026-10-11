@@ -45,3 +45,18 @@ export function buildSettingsTransferUrl(targetOrigin = TAFAC_URL, storage = loc
   }
   return `${targetOrigin.replace(/\/$/, '')}/${TRANSFER_PREFIX}${toBase64Url(JSON.stringify(settings))}`
 }
+
+// Set once the settings went over: from then on every visit goes straight to
+// Tafac (see tafacRedirect.js).
+export const MOVED_TO_TAFAC_KEY = 'l-ent:moved-to-tafac'
+
+// Remembers the move, then sends the user to Tafac with their settings.
+export function moveToTafac() {
+  const transferUrl = buildSettingsTransferUrl()
+  try {
+    localStorage.setItem(MOVED_TO_TAFAC_KEY, '1')
+  } catch {
+    // Storage unavailable: they'll see the sheet again next time
+  }
+  window.location.assign(transferUrl)
+}
