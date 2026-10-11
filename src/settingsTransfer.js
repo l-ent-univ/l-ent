@@ -3,7 +3,8 @@
 // the fragment, which browsers never send to a server. Tafac's
 // src/settingsTransfer.js reads it; keep the key list and format in sync.
 
-export const TAFAC_URL = 'https://tafac.fr'
+// VITE_TAFAC_URL points it at a local Tafac to try the move.
+export const TAFAC_URL = import.meta.env.VITE_TAFAC_URL || 'https://tafac.fr'
 
 const TRANSFER_PREFIX = '#import='
 const MAX_VALUE_LENGTH = 20_000
