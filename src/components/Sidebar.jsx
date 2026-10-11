@@ -3,6 +3,7 @@ import { Icon } from '@iconify/react'
 import universityConfig from '@university'
 import UniversityLockup from './UniversityLockup'
 import UpdateNotice from './UpdateNotice'
+import { TafacMoveBanner } from './TafacMoveNotice'
 import { track } from '../analytics'
 import { ENT_AUTH_PREFIX, GRADES_LAUNCH_HREF } from '../entApi'
 import {
@@ -78,6 +79,7 @@ function Sidebar({
   favoritesSlotRef = null,
   hasPendingUpdate = false,
   onUpdateClick,
+  onTafacMoveClick,
   establishment = null,
 }) {
   const [activeSection, setActiveSection] = useState('applications')
@@ -170,6 +172,7 @@ function Sidebar({
       <div className="flex flex-col gap-3 w-full">
         <div ref={favoritesSlotRef} className="sidebar-favorites-slot empty:hidden w-full" />
         {hasPendingUpdate ? <UpdateNotice onUpdateClick={onUpdateClick} /> : null}
+        <TafacMoveBanner onOpen={onTafacMoveClick} />
         {authenticated ? (
           <div aria-hidden="true" className="h-px w-full bg-border/70" />
         ) : null}

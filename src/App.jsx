@@ -13,6 +13,8 @@ import PwaInstallPrompt from './components/PwaInstallPrompt'
 import OnboardingPage from './components/OnboardingPage'
 import PwaUpdateManager from './components/PwaUpdateManager'
 import UpdateNotice from './components/UpdateNotice'
+import TafacMoveNotice, { TafacMoveBanner } from './components/TafacMoveNotice'
+import { useTafacMoveNotice } from './useTafacMoveNotice'
 import { DEMO_CREDENTIALS, DEMO_SESSION_MODE } from './demoAccount'
 import { storeBrowserPasswordCredential } from './browserCredentials'
 import { syncRuntimeSeo } from './seo'
@@ -957,6 +959,7 @@ function App() {
   const [forceIosPrompt, setForceIosPrompt] = useState(false)
   const [forceUpdatePrompt, setForceUpdatePrompt] = useState(false)
   const [hasPendingUpdate, setHasPendingUpdate] = useState(false)
+  const tafacMove = useTafacMoveNotice()
   const applyUpdateRef = useRef(null)
   const handleApplyUpdate = useCallback(async () => {
     if (applyUpdateRef.current) {
@@ -2464,6 +2467,7 @@ function App() {
             favoritesSlotRef={setFavoritesSlotEl}
             hasPendingUpdate={hasPendingUpdate}
             onUpdateClick={handleApplyUpdate}
+            onTafacMoveClick={tafacMove.onOpen}
             establishment={establishment}
           />
           <div ref={dashboardColumnRef} className="relative isolate flex flex-col flex-1 min-w-0 4xl:h-screen 4xl:overflow-y-auto 4xl:pl-[292px]">
@@ -2490,6 +2494,9 @@ function App() {
                 <UpdateNotice onUpdateClick={handleApplyUpdate} />
               </div>
             ) : null}
+            <div className="4xl:hidden px-6 pt-3 max-md:px-3">
+              <TafacMoveBanner onOpen={tafacMove.onOpen} />
+            </div>
             {sessionState.warning ? (
               <div className="px-6 pt-3 max-md:px-3 4xl:pt-5">
                 <div className="flex items-start gap-3 rounded-[20px] border border-[#f2cf8f] bg-[#fff7e8] px-4 py-3 text-text shadow-[0_10px_30px_rgba(0,0,0,0.05)] dark:border-[#6a4d15] dark:bg-[#2f2410]">
@@ -2527,6 +2534,7 @@ function App() {
           onCredentialsChange={(field, value) => setCredentials((current) => ({ ...current, [field]: value }))}
           onDemoLogin={() => void handleDemoLogin()}
           onSubmit={handleLogin}
+          onTafacMoveClick={tafacMove.onOpen}
         />
       )}
       <AccountModal
@@ -2554,7 +2562,11 @@ function App() {
         anonymousAnalytics={anonymousAnalytics}
         onAnonymousAnalyticsChange={isAnalyticsAvailable ? handleAnonymousAnalyticsChange : null}
       />
-      <PwaInstallPrompt forceShow={forceInstallPrompt || forceIosPrompt} forceIos={forceIosPrompt} />
+      <TafacMoveNotice open={tafacMove.open} onClose={tafacMove.onClose} />
+      {/* No install invitation for the old address: Tafac replaces it. */}
+      {forceInstallPrompt || forceIosPrompt ? (
+        <PwaInstallPrompt forceShow forceIos={forceIosPrompt} />
+      ) : null}
       <PwaUpdateManager
         forceOpen={forceUpdatePrompt}
         onForceOpenChange={setForceUpdatePrompt}
