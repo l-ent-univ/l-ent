@@ -98,6 +98,15 @@ export const ANALYTICS_EVENTS = {
     properties: {},
     allowWithoutSession: true,
   },
+  // "l'ent devient Tafac" sheet (src/components/TafacMoveNotice.jsx): opened,
+  // put off, or moved to Tafac. Shown on the login page too.
+  tafac_move: {
+    properties: {
+      action: oneOf('shown', 'later', 'move'),
+    },
+    required: ['action'],
+    allowWithoutSession: true,
+  },
 }
 
 function pickAllowed(source, validators) {

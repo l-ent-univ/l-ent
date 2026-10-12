@@ -1,7 +1,25 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Icon } from '@iconify/react'
 import renameNoticeImage from '../assets/login/rename-notice.webp'
 import { moveToTafac } from '../settingsTransfer'
+import { flushAnalytics, isPostHogAvailable, track } from '../analytics'
+
+// track() drops events sent before the session says whether analytics is on,
+// and the sheet can open before that: wait for it a few seconds.
+function trackMoveNotice(action, attempt = 0) {
+  if (isPostHogAvailable() || attempt >= 10) {
+    track('tafac_move', { action })
+    return
+  }
+  setTimeout(() => trackMoveNotice(action, attempt + 1), 500)
+}
+
+// Sent right away: the move leaves the page.
+function handleMove() {
+  track('tafac_move', { action: 'move' })
+  flushAnalytics()
+  moveToTafac()
+}
 
 // Same look as UpdateNotice, shown where it is on the dashboard.
 export function TafacMoveBanner({ onOpen, className = '' }) {
@@ -30,7 +48,12 @@ export function TafacMoveBanner({ onOpen, className = '' }) {
 export default function TafacMoveNotice({ open, onClose }) {
   const [animatingOut, setAnimatingOut] = useState(false)
 
+  useEffect(() => {
+    if (open) trackMoveNotice('shown')
+  }, [open])
+
   const dismiss = useCallback(() => {
+    trackMoveNotice('later')
     setAnimatingOut(true)
     setTimeout(() => {
       setAnimatingOut(false)
@@ -78,7 +101,7 @@ export default function TafacMoveNotice({ open, onClose }) {
             </button>
             <button
               type="button"
-              onClick={moveToTafac}
+              onClick={handleMove}
               className="inline-flex items-center justify-center gap-2 py-3.5 border-0 bg-bg-subtle text-text font-body font-semibold text-[0.95rem] active:bg-bg transition-colors"
             >
               Passer à Tafac

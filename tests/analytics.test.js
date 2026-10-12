@@ -102,6 +102,14 @@ test('events without a session are limited to the anonymous-safe ones', () => {
   assert.ok(sanitizeAnalyticsEvent({ event: 'login_result', properties: { result: 'failure' } }, { hasSession: false }))
 })
 
+test('tafac_move only carries its action', () => {
+  assert.deepEqual(
+    sanitizeAnalyticsEvent({ event: 'tafac_move', properties: { action: 'move', url: 'https://tafac.fr/#import=x' } }, { hasSession: false }),
+    { event: 'tafac_move', properties: { action: 'move' } },
+  )
+  assert.equal(sanitizeAnalyticsEvent({ event: 'tafac_move', properties: { action: 'other' } }), null)
+})
+
 test('batch parsing accepts sendBeacon text bodies and caps the batch size', () => {
   const events = Array.from({ length: 50 }, () => ({ event: 'dashboard_viewed' }))
   assert.equal(sanitizeAnalyticsBatch(JSON.stringify({ events }), { hasSession: true }).length, ANALYTICS_MAX_EVENTS_PER_BATCH)
