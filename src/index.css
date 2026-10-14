@@ -174,6 +174,15 @@ body,
   overflow-x: hidden;
 }
 
+/* viewport-fit=cover (index.html) laisse la page s'étendre sous l'encoche et
+   les coins arrondis : le fond couvre tout l'écran au lieu des bandes noires
+   du letterboxing iOS. Seul le contenu est écarté des bords, via les insets —
+   nuls en portrait et sur tout écran sans encoche. */
+#root {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
 body {
   margin: 0;
   min-width: 320px;
