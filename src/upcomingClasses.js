@@ -8,7 +8,24 @@ export const NEXT_CLASS_CACHE_KEY = 'l-ent:next-class-cache'
 export const NEXT_CLASS_CACHE_TTL_MS = 48 * 60 * 60 * 1000
 export const NEXT_CLASS_LOOKAHEAD_DAYS = 21
 
-function formatDateOnly(date) {
+const CLASS_COLORS_KEY = 'l-ent:class-colors'
+
+// Stable random hue per class title, shared by the "Prochain cours" card and
+// the planning page so a class keeps its colour everywhere.
+export function getClassHue(title) {
+  try {
+    const stored = JSON.parse(localStorage.getItem(CLASS_COLORS_KEY) || '{}')
+    if (stored[title] != null) return stored[title]
+    const hue = Math.floor(Math.random() * 360)
+    stored[title] = hue
+    localStorage.setItem(CLASS_COLORS_KEY, JSON.stringify(stored))
+    return hue
+  } catch {
+    return 207
+  }
+}
+
+export function formatDateOnly(date) {
   const year = date.getFullYear()
   const month = String(date.getMonth() + 1).padStart(2, '0')
   const day = String(date.getDate()).padStart(2, '0')

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Icon } from '@iconify/react'
+import { navigateTo } from '../appRoute'
 import { useWidgetLoadReport } from '../analytics'
 import { GRADES_LAUNCH_HREF, getLatestGrade, getRequestErrorKind, openGradesService } from '../entApi'
 import {
@@ -169,26 +170,26 @@ function LiveWidgetLatestGrade({ visible }) {
   const accentColor = grade.resource ? getGradeColor(grade.resource) : DEFAULT_ACCENT_COLOR
   const noteDisplay = grade.note ? String(parseFloat(grade.note)) : '—'
   const noteMax = grade.noteSur ? String(Math.round(parseFloat(grade.noteSur))) : '20'
-  const canOpen = Boolean(GRADES_LAUNCH_HREF)
+  const handleOpenGrades = () => {
+    navigateTo('grades')
+  }
   const handleKeyDown = (event) => {
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault()
-      openGradesService()
+      handleOpenGrades()
     }
   }
 
   return (
     <article
-      className={`${CARD_CLASSES} border-white bg-widget-bg flex flex-col gap-[6px] text-text ${canOpen ? 'cursor-pointer' : ''} ${wide ? '2xl:flex-[0_1_360px]' : ''} ${isReady ? 'widget-card-visible' : ''}`}
-      aria-label={`Dernière note: ${noteDisplay} sur ${noteMax}${grade.description ? ` (${grade.description})` : ''}`}
-      role={canOpen ? 'link' : undefined}
-      tabIndex={canOpen ? 0 : undefined}
-      onClick={canOpen ? openGradesService : undefined}
-      onKeyDown={canOpen ? handleKeyDown : undefined}
+      className={`${CARD_CLASSES} border-white bg-widget-bg flex flex-col gap-[6px] text-text cursor-pointer ${wide ? '2xl:flex-[0_1_360px]' : ''} ${isReady ? 'widget-card-visible' : ''}`}
+      aria-label={`Dernière note: ${noteDisplay} sur ${noteMax}${grade.description ? ` (${grade.description})` : ''} - Ouvrir mes notes`}
+      role="link"
+      tabIndex={0}
+      onClick={handleOpenGrades}
+      onKeyDown={handleKeyDown}
     >
-      {canOpen ? (
-        <Icon icon="carbon:arrow-up-right" className="grade-corner-arrow absolute top-[14px] right-[14px] w-[14px] h-[14px] text-text opacity-0 transition-opacity duration-150 ease-in-out shrink-0" aria-hidden="true" />
-      ) : null}
+      <Icon icon="carbon:chevron-right" className="grade-corner-arrow absolute top-[14px] right-[14px] w-[15px] h-[15px] text-text opacity-0 transition-opacity duration-150 ease-in-out shrink-0" aria-hidden="true" />
       <LatestGradeHeader />
       <div className="flex-1 flex flex-col gap-[5px] justify-end">
         <LatestGradeValue noteDisplay={noteDisplay} noteMax={noteMax} accentColor={accentColor} />

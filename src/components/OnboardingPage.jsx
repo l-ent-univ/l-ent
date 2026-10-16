@@ -326,11 +326,15 @@ function OnboardingPage({
                     </p>
                     <p className="m-0 mt-2 text-base font-semibold text-text">{STEP_CONFIG[stepKey].label}</p>
                     <p className="m-0 mt-2 text-sm text-text-muted font-body">
-                      {stepKey === 'year' && selectedYear ? selectedYear.label : null}
-                      {stepKey === 'td' && selectedTd ? selectedTd.label : null}
-                      {stepKey === 'tp' ? 'Groupe final' : null}
-                      {!isCompleted && !isCurrent ? 'À choisir' : null}
-                      {isCurrent ? 'En cours' : null}
+                      {stepKey === 'year' && selectedYear
+                        ? selectedYear.label
+                        : stepKey === 'td' && selectedTd
+                          ? selectedTd.label
+                          : isCurrent
+                            ? 'En cours'
+                            : stepKey === 'tp'
+                              ? 'Groupe final, à choisir'
+                              : 'À choisir'}
                     </p>
                   </div>
                 )

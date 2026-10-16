@@ -1,5 +1,6 @@
 import universityConfig from '@university'
 import { GRADES_UNAVAILABLE_MESSAGE } from './gradeFeatureState'
+import { buildAbsenceReport } from './gradesReport'
 
 export const ENT_ORIGIN = universityConfig.origins.ent
 const ENT_HOST = new URL(ENT_ORIGIN).hostname
@@ -433,6 +434,116 @@ export async function getRecentMail() {
   }
 }
 
+export async function getMailMessages({ limit = 30, query = '' } = {}) {
+  if (!universityConfig.features?.mail) {
+    return { status: 'disabled', unreadCount: null, webmailHref: null, messages: [] }
+  }
+
+  try {
+    const params = new URLSearchParams()
+    if (limit) params.set('limit', String(limit))
+    if (query) params.set('q', query.trim())
+    const queryString = params.toString() ? `?${params.toString()}` : ''
+
+    const response = await fetch(`${ENT_AUTH_PREFIX}/mail/messages${queryString}`, {
+      credentials: 'same-origin',
+    })
+    const payload = await response.json().catch(() => null)
+
+    if (payload?.disabled) {
+      return { status: 'disabled', unreadCount: null, webmailHref: null, messages: [] }
+    }
+
+    if (!response.ok || !payload) {
+      throw createHttpError(payload?.error || `Mail messages request failed (${response.status}).`, response.status)
+    }
+
+    if (!payload.authenticated || !payload.mail) {
+      return { status: 'unauthenticated', unreadCount: null, webmailHref: null, messages: [] }
+    }
+
+    return {
+      status: 'ok',
+      unreadCount: Number.isFinite(payload.mail.unreadCount) ? payload.mail.unreadCount : null,
+      webmailHref: payload.mail.webmailHref ?? null,
+      messages: Array.isArray(payload.mail.messages) ? payload.mail.messages : [],
+    }
+  } catch (error) {
+    return {
+      status: 'error',
+      unreadCount: null,
+      webmailHref: null,
+      messages: [],
+      error: error instanceof Error ? error.message : String(error),
+      errorKind: getRequestErrorKind(error),
+    }
+  }
+}
+
+export async function getMailMessage(id) {
+  if (!id) throw new Error('ID de message manquant')
+
+  const response = await fetch(`${ENT_AUTH_PREFIX}/mail/message/${encodeURIComponent(id)}`, {
+    credentials: 'same-origin',
+  })
+  const payload = await response.json().catch(() => null)
+
+  if (!response.ok || !payload) {
+    throw createHttpError(payload?.error || `Impossible de charger le message (${response.status}).`, response.status)
+  }
+
+  return payload.message
+}
+
+export async function markMailAsRead(id, read = true) {
+  if (!id) return false
+
+  const response = await fetch(`${ENT_AUTH_PREFIX}/mail/read`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id, read }),
+    credentials: 'same-origin',
+  })
+
+  return response.ok
+}
+
+export async function sendMailMessage({ to, cc, bcc, subject, bodyHtml, bodyText, origId, replyType } = {}) {
+  const response = await fetch(`${ENT_AUTH_PREFIX}/mail/send`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ to, cc, bcc, subject, bodyHtml, bodyText, origId, replyType }),
+    credentials: 'same-origin',
+  })
+
+  const payload = await response.json().catch(() => null)
+  if (!response.ok || !payload?.ok) {
+    throw createHttpError(
+      payload?.error || `Impossible d'envoyer l'e-mail (${response.status}).`,
+      response.status,
+    )
+  }
+
+  return payload
+}
+
+export async function searchMailDirectory(query = '') {
+  try {
+    const params = new URLSearchParams()
+    if (query) params.set('q', query.trim())
+    const response = await fetch(`${ENT_AUTH_PREFIX}/mail/directory?${params.toString()}`, {
+      credentials: 'same-origin',
+    })
+    const payload = await response.json().catch(() => null)
+    if (!response.ok || !payload?.ok) {
+      return []
+    }
+    return Array.isArray(payload.contacts) ? payload.contacts : []
+  } catch {
+    return []
+  }
+}
+
 const GRADES_CACHE_KEY = 'l-ent:grades-cache'
 
 // Upcoming Moodle deadlines for the "Échéances Moodle" widget.
@@ -488,18 +599,330 @@ export async function getMoodleDeadlines() {
   }
 }
 
+export function getMoodleFileProxyUrl(fileUrl, filename) {
+  if (!fileUrl) return null
+  return `${ENT_AUTH_PREFIX}/moodle/file?url=${encodeURIComponent(fileUrl)}&name=${encodeURIComponent(filename || 'document')}`
+}
+
+export async function getMoodleCourses() {
+  const empty = { moodleHref: null, courses: [] }
+
+  if (!universityConfig.features?.moodle) {
+    return { status: 'disabled', ...empty }
+  }
+
+  try {
+    const response = await fetch(`${ENT_AUTH_PREFIX}/moodle/courses`, {
+      credentials: 'same-origin',
+    })
+    const payload = await response.json().catch(() => null)
+
+    if (payload?.disabled) {
+      return { status: 'disabled', ...empty }
+    }
+
+    if (!response.ok || !payload) {
+      throw createHttpError(payload?.error || `Moodle request failed (${response.status}).`, response.status)
+    }
+
+    if (!payload.authenticated) {
+      return { status: 'unauthenticated', ...empty }
+    }
+
+    return {
+      status: 'ok',
+      moodleHref: payload.moodleHref ?? null,
+      courses: Array.isArray(payload.courses) ? payload.courses : [],
+    }
+  } catch (error) {
+    return {
+      status: 'error',
+      ...empty,
+      error: error instanceof Error ? error.message : String(error),
+      errorKind: getRequestErrorKind(error),
+    }
+  }
+}
+
+export async function getMoodleCourseContents(courseId) {
+  const empty = { courseId: Number(courseId), sections: [] }
+
+  if (!universityConfig.features?.moodle) {
+    return { status: 'disabled', ...empty }
+  }
+
+  try {
+    const response = await fetch(`${ENT_AUTH_PREFIX}/moodle/course-contents?courseId=${encodeURIComponent(courseId)}`, {
+      credentials: 'same-origin',
+    })
+    const payload = await response.json().catch(() => null)
+
+    if (payload?.disabled) {
+      return { status: 'disabled', ...empty }
+    }
+
+    if (!response.ok || !payload) {
+      throw createHttpError(payload?.error || `Moodle request failed (${response.status}).`, response.status)
+    }
+
+    if (!payload.authenticated) {
+      return { status: 'unauthenticated', ...empty }
+    }
+
+    return {
+      status: 'ok',
+      courseId: payload.courseId ?? Number(courseId),
+      sections: Array.isArray(payload.sections) ? payload.sections : [],
+    }
+  } catch (error) {
+    return {
+      status: 'error',
+      ...empty,
+      error: error instanceof Error ? error.message : String(error),
+      errorKind: getRequestErrorKind(error),
+    }
+  }
+}
+
+export async function getMoodleFolderContents(cmid, courseId) {
+  const empty = { cmid: Number(cmid), files: [] }
+
+  if (!universityConfig.features?.moodle) {
+    return { status: 'disabled', ...empty }
+  }
+
+  try {
+    const params = new URLSearchParams({ cmid: String(cmid) })
+    if (courseId) params.set('courseId', String(courseId))
+    const response = await fetch(`${ENT_AUTH_PREFIX}/moodle/folder-contents?${params.toString()}`, {
+      credentials: 'same-origin',
+    })
+    const payload = await response.json().catch(() => null)
+
+    if (payload?.disabled) {
+      return { status: 'disabled', ...empty }
+    }
+
+    if (!response.ok || !payload) {
+      throw createHttpError(payload?.error || `Moodle folder request failed (${response.status}).`, response.status)
+    }
+
+    if (!payload.authenticated) {
+      return { status: 'unauthenticated', ...empty }
+    }
+
+    return {
+      status: 'ok',
+      cmid: payload.cmid ?? Number(cmid),
+      name: payload.name || '',
+      files: Array.isArray(payload.files) ? payload.files : [],
+      downloadFolderProxyUrl: payload.downloadFolderProxyUrl || null,
+    }
+  } catch (error) {
+    return {
+      status: 'error',
+      ...empty,
+      error: error instanceof Error ? error.message : String(error),
+      errorKind: getRequestErrorKind(error),
+    }
+  }
+}
+
+export async function getMoodleAssignmentDetails(cmid, courseId) {
+  const empty = { cmid: Number(cmid), assignment: null }
+
+  if (!universityConfig.features?.moodle) {
+    return { status: 'disabled', ...empty }
+  }
+
+  try {
+    const params = new URLSearchParams({ cmid: String(cmid) })
+    if (courseId) params.set('courseId', String(courseId))
+    const response = await fetch(`${ENT_AUTH_PREFIX}/moodle/assignment-details?${params.toString()}`, {
+      credentials: 'same-origin',
+    })
+    const payload = await response.json().catch(() => null)
+
+    if (payload?.disabled) {
+      return { status: 'disabled', ...empty }
+    }
+
+    if (!response.ok || !payload) {
+      throw createHttpError(payload?.error || `Moodle assignment request failed (${response.status}).`, response.status)
+    }
+
+    if (!payload.authenticated) {
+      return { status: 'unauthenticated', ...empty }
+    }
+
+    return {
+      status: 'ok',
+      cmid: Number(cmid),
+      assignment: payload.assignment || null,
+    }
+  } catch (error) {
+    return {
+      status: 'error',
+      ...empty,
+      error: error instanceof Error ? error.message : String(error),
+      errorKind: getRequestErrorKind(error),
+    }
+  }
+}
+
+export async function submitMoodleAssignment({ cmid, files = [], onlineText = '', finalize = false }) {
+  try {
+    const response = await fetch(`${ENT_AUTH_PREFIX}/moodle/submit-assignment`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        cmid: Number(cmid),
+        files,
+        onlineText,
+        finalize,
+      }),
+    })
+    const payload = await response.json().catch(() => null)
+
+    if (!response.ok || !payload) {
+      throw createHttpError(payload?.error || `Moodle submit failed (${response.status}).`, response.status)
+    }
+
+    return {
+      status: 'ok',
+      assignment: payload.assignment || null,
+      message: payload.message || 'Devoir téléversé avec succès',
+    }
+  } catch (error) {
+    return {
+      status: 'error',
+      assignment: null,
+      error: error instanceof Error ? error.message : String(error),
+      errorKind: getRequestErrorKind(error),
+    }
+  }
+}
+
+export async function removeMoodleAssignmentFile({ cmid, filename }) {
+  try {
+    const response = await fetch(`${ENT_AUTH_PREFIX}/moodle/assignment-file/remove`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        cmid: Number(cmid),
+        filename,
+      }),
+    })
+    const payload = await response.json().catch(() => null)
+
+    if (!response.ok || !payload) {
+      throw createHttpError(payload?.error || `Moodle file remove failed (${response.status}).`, response.status)
+    }
+
+    return {
+      status: 'ok',
+      assignment: payload.assignment || null,
+    }
+  } catch (error) {
+    return {
+      status: 'error',
+      assignment: null,
+      error: error instanceof Error ? error.message : String(error),
+      errorKind: getRequestErrorKind(error),
+    }
+  }
+}
+
 // App bootstrap, the latest-grade widget and the sidebar pockets all ask for
 // grades on load: share one in-flight request instead of hitting ScoDoc N times.
 let gradesInflight = null
 
+// Grades caching, two levels:
+// - memory, fresh for a few minutes: dashboard ↔ "Mes notes" round trips and
+//   semester switches don't refetch at all;
+// - sessionStorage, for this tab only: after a reload the pages show the last
+//   answer straight away and refresh it in the background. Grades are
+//   sensitive, so never localStorage; the session copy is dropped on login,
+//   logout and expired sessions (clearGradesCache).
+const GRADES_MEMORY_TTL_MS = 5 * 60 * 1000
+const GRADES_SESSION_CACHE_KEY = 'l-ent:grades-session-cache'
+// Older than this, a session copy isn't worth showing.
+const GRADES_SESSION_MAX_AGE_MS = 12 * 60 * 60 * 1000
+let gradesMemory = null
+// semesterId → { at, promise, data? }
+const semesterGradesMemory = new Map()
+
+function isFreshGradesEntry(entry) {
+  return Boolean(entry) && Date.now() - entry.at < GRADES_MEMORY_TTL_MS
+}
+
+function isUsableGradesAnswer(data) {
+  return Boolean(data?.authenticated && data.grades && !data.error)
+}
+
+// { at, data, semesters: { [id]: { at, data } } }
+function readGradesSessionCache() {
+  try {
+    const stored = JSON.parse(sessionStorage.getItem(GRADES_SESSION_CACHE_KEY) || 'null')
+    return stored && typeof stored === 'object' ? stored : { semesters: {} }
+  } catch {
+    return { semesters: {} }
+  }
+}
+
+function writeGradesSessionCache(update) {
+  try {
+    const current = readGradesSessionCache()
+    sessionStorage.setItem(GRADES_SESSION_CACHE_KEY, JSON.stringify(update(current)))
+  } catch {
+    // Storage full or blocked: the memory level still works.
+  }
+}
+
+function readSessionEntry(entry) {
+  return entry?.data && Date.now() - entry.at < GRADES_SESSION_MAX_AGE_MS ? entry.data : null
+}
+
+// The latest known answer, without waiting: fresh from memory, or the
+// (possibly older) copy kept for this tab. Callers still call getGrades()
+// to get an up-to-date one.
+export function peekGrades() {
+  if (isFreshGradesEntry(gradesMemory)) {
+    return gradesMemory.data
+  }
+
+  return readSessionEntry(readGradesSessionCache())
+}
+
 export function getGrades({ force = false } = {}) {
+  if (!force && isFreshGradesEntry(gradesMemory)) {
+    return Promise.resolve(gradesMemory.data)
+  }
+
   if (!force && gradesInflight) {
     return gradesInflight
   }
 
-  gradesInflight = requestGrades().finally(() => {
-    gradesInflight = null
-  })
+  gradesInflight = requestGrades()
+    .then((data) => {
+      if (isUsableGradesAnswer(data)) {
+        const at = Date.now()
+        gradesMemory = { at, data }
+        writeGradesSessionCache((current) => ({ ...current, at, data }))
+      } else {
+        gradesMemory = null
+      }
+      return data
+    })
+    .finally(() => {
+      gradesInflight = null
+    })
   return gradesInflight
 }
 
@@ -537,8 +960,19 @@ export async function getStudentProfilePictureMeta() {
   return parseJsonPayload(response)
 }
 
-export function clearGradesCache() {
-  localStorage.removeItem(GRADES_CACHE_KEY)
+// `keepSessionCache`: the boot-time purge of legacy storage caches must not
+// wipe this tab's copy, which is what makes a reload instant.
+export function clearGradesCache({ keepSessionCache = false } = {}) {
+  gradesMemory = null
+  semesterGradesMemory.clear()
+  try {
+    localStorage.removeItem(GRADES_CACHE_KEY)
+    if (!keepSessionCache) {
+      sessionStorage.removeItem(GRADES_SESSION_CACHE_KEY)
+    }
+  } catch {
+    // Storage blocked: nothing was cached there either.
+  }
 }
 
 export function openGradesService() {
@@ -547,6 +981,95 @@ export function openGradesService() {
   }
 
   window.open(GRADES_LAUNCH_HREF, '_blank', 'noopener,noreferrer')
+}
+
+async function requestSemesterGrades(semesterId) {
+  const response = await fetch(`${ENT_AUTH_PREFIX}/grades/semester/${encodeURIComponent(semesterId)}`, {
+    credentials: 'same-origin',
+  })
+
+  return parseJsonPayload(response)
+}
+
+// Relevé of one semester for the "Mes notes" page. Same answer as getGrades()
+// ({ authenticated, grades }), grades being { relevé, absences, … }.
+// Concurrent calls share one request; good answers stay in memory.
+export function getSemesterGrades(semesterId) {
+  const id = String(semesterId)
+  const cached = semesterGradesMemory.get(id)
+  if (isFreshGradesEntry(cached)) {
+    return cached.promise
+  }
+
+  const entry = { at: Date.now(), promise: null, data: null }
+  entry.promise = requestSemesterGrades(id).then((data) => {
+    if (isUsableGradesAnswer(data)) {
+      entry.data = data
+      writeGradesSessionCache((current) => ({
+        ...current,
+        semesters: { ...current.semesters, [id]: { at: entry.at, data } },
+      }))
+    } else if (semesterGradesMemory.get(id) === entry) {
+      semesterGradesMemory.delete(id)
+    }
+    return data
+  }, (error) => {
+    if (semesterGradesMemory.get(id) === entry) {
+      semesterGradesMemory.delete(id)
+    }
+    throw error
+  })
+  semesterGradesMemory.set(id, entry)
+  return entry.promise
+}
+
+// Like peekGrades(): fresh from memory, or this tab's possibly older copy.
+export function peekSemesterGrades(semesterId) {
+  const id = String(semesterId)
+  const cached = semesterGradesMemory.get(id)
+  if (isFreshGradesEntry(cached) && cached.data) {
+    return cached.data
+  }
+
+  return readSessionEntry(readGradesSessionCache().semesters?.[id])
+}
+
+// Loads the other semesters in the background, one at a time so ScoDoc isn't
+// hit in a burst. Already cached ones are skipped.
+export async function prefetchSemesterGrades(semesterIds) {
+  for (const id of semesterIds) {
+    if (isFreshGradesEntry(semesterGradesMemory.get(String(id)))) continue
+    await getSemesterGrades(id).catch(() => {})
+  }
+}
+
+// Warms everything the "Mes notes" page needs (sidebar hover, tab press).
+export function prefetchGradesPage() {
+  if (!universityConfig.features?.grades) {
+    return
+  }
+
+  getGrades()
+    .then((data) => {
+      const semesters = Array.isArray(data?.grades?.semestres) ? data.grades.semestres : []
+      // The first answer already holds the newest semester; ScoDoc lists oldest first.
+      const otherIds = semesters.slice(0, -1).map((semester) => semester.formsemestre_id).filter((id) => id != null).reverse()
+      return prefetchSemesterGrades(otherIds)
+    })
+    .catch(() => {})
+}
+
+// { message: html | null }: the department notice ScoDoc shows above the relevé.
+export async function getGradesDepartmentMessage(department) {
+  const response = await fetch(`${ENT_AUTH_PREFIX}/grades/department-message?dep=${encodeURIComponent(department)}`, {
+    credentials: 'same-origin',
+  })
+
+  return parseJsonPayload(response)
+}
+
+export function getGradesReportPdfHref(semesterId, type = 'BUT') {
+  return `${ENT_AUTH_PREFIX}/grades/report.pdf?semestre=${encodeURIComponent(semesterId)}&type=${type === 'DUT' ? 'DUT' : 'BUT'}`
 }
 
 function parseGradeValue(val) {
@@ -891,6 +1414,18 @@ export async function getAverageGrade() {
 
   const currentReleve = resolved.releve
 
+  // ScoDoc's own semester average (the one on the relevé) wins; the estimate
+  // below is only for relevés that don't carry it.
+  const officialAverage = parseGradeValue(currentReleve.semestre?.notes?.value)
+  if (officialAverage != null) {
+    const officialPromoAverage = parseGradeValue(currentReleve.semestre?.notes?.moy)
+    return {
+      average: officialAverage.toFixed(2),
+      promoAverage: officialPromoAverage != null ? officialPromoAverage.toFixed(2) : null,
+      debug: { source: 'semestre.notes' },
+    }
+  }
+
   // Collect all graded entries from ressources and saes
   const allGrades = []
   const allPromoGrades = []
@@ -992,13 +1527,17 @@ export async function getLatestGrade() {
     for (const [code, resource] of Object.entries(section)) {
       for (const evaluation of resource.evaluations ?? []) {
         const val = evaluation.note?.value
-        if (!evaluation.date || !val || val === 'abs' || val === 'EXC' || val === '~') continue
-        if (!latest || evaluation.date > latest.date) {
+        // `date` is ScoDoc's deprecated alias of date_debut.
+        const date = evaluation.date_debut ?? evaluation.date
+        if (!date || parseGradeValue(val) == null) continue
+        if (!latest || date > latest.date) {
+          // ScoDoc sends evaluation notes already on /20; note.max is the
+          // best grade of the promo, not the scale.
           latest = {
-            date: evaluation.date,
+            date,
             description: evaluation.description || resource.titre || code,
             note: val,
-            noteSur: evaluation.note?.max ?? '20',
+            noteSur: '20',
             noteMoy: evaluation.note?.moy ?? null,
             resource: code,
             resourceTitle: resource.titre ?? code,
@@ -1010,6 +1549,47 @@ export async function getLatestGrade() {
   }
 
   return latest ?? { error: 'Aucune note trouvée', empty: true }
+}
+
+export async function getAbsencesSummary() {
+  const data = await getGrades()
+  if (!data?.authenticated || !data?.grades || data?.error) {
+    if (data?.disabled) {
+      return { disabled: true }
+    }
+    return { error: data?.error || 'Indisponible', errorKind: data?.errorKind }
+  }
+
+  const grades = data.grades
+  const releve = getCurrentGradesReleve(grades) ?? grades?.['relevé'] ?? grades?.releve ?? null
+  const config = grades.config ?? null
+  const report = buildAbsenceReport(grades, releve, config)
+  if (!report.visible) {
+    return {
+      totals: { justified: '0h', unjustified: '0h', late: '0' },
+      unjustifiedCount: 0,
+      justifiedCount: 0,
+      lateCount: 0,
+      totalCount: 0,
+      notice: null,
+      unpublished: true,
+    }
+  }
+
+  const entries = report.entries || []
+  const unjustified = entries.filter((entry) => entry.status === 'unjustified')
+  const justified = entries.filter((entry) => entry.status === 'justified')
+  const lates = entries.filter((entry) => entry.status === 'late')
+
+  return {
+    totals: report.totals ?? { justified: '0h', unjustified: '0h', late: '0' },
+    unjustifiedCount: unjustified.length,
+    justifiedCount: justified.length,
+    lateCount: lates.length,
+    totalCount: entries.length,
+    notice: report.notice,
+    latestAbsence: entries[0] ?? null,
+  }
 }
 
 // ============================================================================
@@ -1045,6 +1625,16 @@ export async function searchAde(query) {
     `${ENT_AUTH_PREFIX}/ade/search?q=${encodeURIComponent(query.trim())}`,
     { credentials: 'same-origin' },
   )
+
+  return parseJsonPayload(response)
+}
+
+export async function getAdeTeachers(query = '') {
+  const q = String(query ?? '').trim()
+  const params = q ? `?q=${encodeURIComponent(q)}` : ''
+  const response = await fetch(`${ENT_AUTH_PREFIX}/ade/teachers${params}`, {
+    credentials: 'same-origin',
+  })
 
   return parseJsonPayload(response)
 }

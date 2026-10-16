@@ -92,9 +92,10 @@ export default {
   establishments: {
     // Ordered substring rules, matched against the lowercased ADE tree path.
     detectFromAdeTree: [
-      { includes: ['iut lannion'], id: 'iutlan' },
-      { includes: ['iut saint-brieuc'], id: 'iutsaib' },
-      { includes: ['iut saint-malo'], id: 'iutsai' },
+      { includes: ['enssat', 'ingénieur', 'ingenieur', 'photonique'], id: 'enssat' },
+      { includes: ['iut lannion', 'iut de lannion', 'iutlan', 'iut-lannion', 'but '], id: 'iutlan' },
+      { includes: ['iut saint-brieuc', 'iut de saint-brieuc', 'iutsaib'], id: 'iutsaib' },
+      { includes: ['iut saint-malo', 'iut de saint-malo', 'iutsai'], id: 'iutsai' },
       { includes: ['osur'], id: 'ods' },
       { includes: ['odontologie'], id: 'ufro' },
       { includes: ['pharmacie'], id: 'ufrp' },
@@ -102,7 +103,7 @@ export default {
       { includes: ['faculté des sciences', 'faculte des sciences', 'istic'], id: 'ufrs' },
       { includes: ['droit', 'science politique'], id: 'fdse' },
     ],
-    fallbackId: 'other',
+    fallbackId: 'iutlan',
     byId: {
       iutlan: {
         label: 'IUT de Lannion',
@@ -150,6 +151,38 @@ export default {
             title: 'Loxya',
             description: 'Location de matériel audiovisuel',
             href: 'https://iut-lannion.loxya.app/external/login',
+            target: '_blank',
+          },
+        ],
+      },
+      enssat: {
+        label: 'ENSSAT',
+        heroImages: [
+          {
+            src: heroLannionBrelevenez,
+            credit: {
+              author: 'Laurent',
+              license: 'CC BY-SA 3.0',
+              url: 'https://commons.wikimedia.org/wiki/File:VueDeLannionEtBrelevenez.jpg',
+            },
+          },
+          {
+            src: heroLannionLeguer,
+            credit: {
+              author: 'Kev22',
+              license: 'CC BY-SA 4.0',
+              url: 'https://commons.wikimedia.org/wiki/File:Lannion_-_Le_L%C3%A9guer_03.jpg',
+            },
+          },
+        ],
+        gradeWidgets: false,
+        nextClassWidget: true,
+        extraServices: [
+          {
+            id: 'enssat-pegase',
+            title: 'Dossier étudiant (Pégase)',
+            description: 'Consulter ses notes et son dossier étudiant',
+            href: 'https://mdw-pegase.univ-rennes.fr',
             target: '_blank',
           },
         ],

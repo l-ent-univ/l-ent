@@ -220,6 +220,7 @@ test('uses the current portal REST routes and normalizes its JSON', async () => 
     uid: '501',
     title: 'Développement web',
     teacher: 'Mme Dupont',
+    teachers: [{ id: null, name: 'Mme Dupont' }],
     location: 'Salle 12',
     groups: ['TP 1'],
     groupsLabel: 'TP 1',

@@ -3,7 +3,14 @@ import { Icon } from '@iconify/react'
 import UniversityLockup from './UniversityLockup'
 import ChangelogPill from './ChangelogPill'
 import UpdateNotice from './UpdateNotice'
+import { scrollAppToTop, useAppRoute } from '../appRoute'
+import { prefetchGradesPage } from '../entApi'
 import { buildNavItems, openNavItemLink } from '../navItems'
+import { useSlidingIndicator } from '../useSlidingIndicator'
+import { SlidingIndicator } from './SlidingIndicator'
+
+// Pages fed by ScoDoc, prefetched on hover.
+const SCODOC_ROUTES = new Set(['grades', 'absences'])
 import {
   DEFAULT_SIDEBAR_WIDTH,
   MAX_SIDEBAR_WIDTH,
@@ -111,29 +118,23 @@ function Sidebar({
   showChangelogPill = false,
   establishment = null,
 }) {
-  const [activeSection, setActiveSection] = useState('applications')
+  const route = useAppRoute()
   const navItems = buildNavItems(establishment)
+  const [navRef, activeBox] = useSlidingIndicator(route)
 
   const handleNavigate = useCallback((item) => {
-    if (typeof document === 'undefined') {
-      return
-    }
-
     if (item.disabled) {
       return
     }
 
-    if (item.href) {
-      openNavItemLink(item, 'sidebar')
+    // Already there: back to the top of the page.
+    if (item.route && item.route === route) {
+      scrollAppToTop({ smooth: true })
       return
     }
 
-    setActiveSection(item.id)
-    const target = document.getElementById(item.targetId)
-    if (target) {
-      target.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    }
-  }, [])
+    openNavItemLink(item, 'sidebar')
+  }, [route])
 
   const initials = (userName || '?').trim().charAt(0).toUpperCase()
 
@@ -152,22 +153,31 @@ function Sidebar({
             <UniversityLockup variant="sidebar" />
           </a>
 
-          <nav className="flex flex-col w-full" aria-label="Sections">
+          <nav ref={navRef} className="relative flex flex-col w-full" aria-label="Sections" data-tour="nav">
+            {/* The active pill slides between items when the page changes. */}
+            <SlidingIndicator
+              box={activeBox}
+              className="rounded-full border bg-widget-bg border-white dark:border-[rgba(255,255,255,0.08)] shadow-[0_1px_3px_rgba(0,0,0,0.06)]"
+            />
             {navItems.map((item) => {
-              const isActive = activeSection === item.id
+              const isActive = Boolean(item.route) && item.route === route
               return (
                 <button
                   key={item.id}
                   type="button"
                   onClick={() => handleNavigate(item)}
+                  // Warm the ScoDoc pages while the pointer is on its way.
+                  onPointerEnter={SCODOC_ROUTES.has(item.route) ? prefetchGradesPage : undefined}
+                  onFocus={SCODOC_ROUTES.has(item.route) ? prefetchGradesPage : undefined}
                   aria-disabled={item.disabled ? 'true' : undefined}
                   aria-current={isActive ? 'page' : undefined}
-                  className={`group relative inline-flex items-center gap-2 w-full h-10 px-3 rounded-full border text-left text-text text-base font-body font-medium leading-6 whitespace-nowrap transition-[background-color,box-shadow,border-color] duration-150 ease-in-out ${
+                  data-active={isActive ? 'true' : undefined}
+                  className={`group relative inline-flex items-center gap-2 w-full h-10 px-3 rounded-full border border-transparent text-left text-text text-base font-body font-medium leading-6 whitespace-nowrap transition-[background-color] duration-150 ease-in-out ${
                     isActive
-                      ? 'bg-widget-bg border-white dark:border-[rgba(255,255,255,0.08)] shadow-[0_1px_3px_rgba(0,0,0,0.06)]'
+                      ? 'bg-transparent'
                       : item.disabled
-                        ? 'bg-transparent border-transparent cursor-not-allowed opacity-55 grayscale'
-                        : 'bg-transparent border-transparent hover:bg-brand-subtle'
+                        ? 'bg-transparent cursor-not-allowed opacity-55 grayscale'
+                        : 'bg-transparent hover:bg-brand-subtle'
                   }`}
                 >
                   <Icon
@@ -206,6 +216,7 @@ function Sidebar({
               type="button"
               onClick={onAccountClick}
               disabled={checking}
+              data-tour="account"
               className="flex items-center gap-2 min-w-0 flex-1 bg-transparent border-0 p-0 text-left cursor-pointer disabled:opacity-40 disabled:cursor-wait"
               aria-label="Mon compte"
             >

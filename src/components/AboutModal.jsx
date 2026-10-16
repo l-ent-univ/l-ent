@@ -3,6 +3,7 @@ import { Icon } from '@iconify/react'
 import universityConfig from '@university'
 import { useAnalyticsAvailable } from '../analytics'
 import PrivacyModal from './PrivacyModal'
+import AuthorsModal from './AuthorsModal'
 
 /* global __BUILD_HASH__ */
 
@@ -15,6 +16,7 @@ export function AboutContent({ demoLinkLabel = '', onDemoLinkClick = null, onPri
   const shouldShowDemoLink = typeof onDemoLinkClick === 'function' && demoLinkLabel.trim()
   const isAnalyticsAvailable = useAnalyticsAvailable()
   const [isPrivacyOpen, setPrivacyOpen] = useState(false)
+  const [isAuthorsOpen, setAuthorsOpen] = useState(false)
 
   return (
     <div className="flex flex-col gap-3 font-body text-[15px] leading-[1.45]">
@@ -35,6 +37,7 @@ export function AboutContent({ demoLinkLabel = '', onDemoLinkClick = null, onPri
         </p>
       ) : null}
       <PrivacyModal open={isPrivacyOpen} onClose={() => setPrivacyOpen(false)} />
+      <AuthorsModal open={isAuthorsOpen} onClose={() => setAuthorsOpen(false)} authors={about.authors} />
       {about.repoUrl ? (
         <p className="m-0">
           Code source disponible sur{' '}
@@ -50,16 +53,26 @@ export function AboutContent({ demoLinkLabel = '', onDemoLinkClick = null, onPri
       ) : null}
       {about.authorLine ? (
         <p className="m-0 text-text-muted text-[13px]">
-          {about.authorUrl ? (
+          {about.authors?.length ? (
+            <button
+              type="button"
+              className="p-0 border-0 bg-transparent text-text-muted font-inherit text-[13px] underline underline-offset-2 transition-colors duration-[120ms] hover:text-text cursor-pointer"
+              onClick={() => setAuthorsOpen(true)}
+            >
+              {about.authorLine}
+            </button>
+          ) : about.authorUrl ? (
             <a
               href={about.authorUrl}
-              className="text-text-muted underline underline-offset-2"
+              className="text-text-muted underline underline-offset-2 transition-colors duration-[120ms] hover:text-text"
               target="_blank"
               rel="noopener noreferrer"
             >
               {about.authorLine}
             </a>
-          ) : about.authorLine}
+          ) : (
+            about.authorLine
+          )}
         </p>
       ) : null}
       <p className="m-0 text-text-muted text-[12px] font-mono">

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from '@iconify/react'
 import universityConfig from '@university'
 import favicon from './assets/favicon.png'
@@ -8,6 +8,7 @@ import Sidebar from './components/Sidebar'
 import AccountModal from './components/AccountModal'
 import ChangelogPill from './components/ChangelogPill'
 import ChangelogSheet from './components/ChangelogSheet'
+import GuidedTour from './components/GuidedTour'
 import LentButton from './components/LentButton'
 import LoginPage from './components/LoginPage'
 import OnboardingCompletionPage from './components/OnboardingCompletionPage'
@@ -44,7 +45,14 @@ import WidgetContainer from './components/WidgetContainer'
 import { listHeroImages, resolveHeroImage } from './heroImage'
 import { getStoredTheme, persistTheme, watchTheme } from './theme'
 import MobileTabBar from './components/MobileTabBar'
-import { getMobileTabItems } from './navItems'
+import { getMobileTabItems, isGradesPageAvailable, isMailPageAvailable, isMoodlePageAvailable, isPlanningPageAvailable } from './navItems'
+import { navigateTo, scrollAppToTop, useAppRoute } from './appRoute'
+import GradesPage from './components/GradesPage'
+import AbsencesPage from './components/AbsencesPage'
+import PlanningPage from './components/PlanningPage'
+import MailPage from './components/MailPage'
+import MoodlePage from './components/MoodlePage'
+import PageErrorBoundary from './components/PageErrorBoundary'
 import { getAvailableWidgets } from './dashboardWidgets'
 import { clearStoredCustomBackground, getStoredCustomBackground, saveCustomBackground } from './customBackground'
 import {
@@ -104,14 +112,16 @@ const LOCAL_STORAGE_CACHE_KEYS = [
   'l-ent:ade-timetable-cache',
 ]
 
-function clearLegacySensitiveClientCaches() {
+// `keepSessionGrades`: at boot, keep this tab's grades copy (it makes a reload
+// instant); it still goes on logout and whenever the session is gone.
+function clearLegacySensitiveClientCaches({ keepSessionGrades = false } = {}) {
   try {
     localStorage.removeItem(LEGACY_SESSION_CACHE_KEY)
   } catch {
     // Ignore storage failures
   }
 
-  clearGradesCache()
+  clearGradesCache({ keepSessionCache: keepSessionGrades })
   clearAdeTimetableCache()
 }
 
@@ -458,6 +468,25 @@ function findTpOptionByLabel(options, labelOrLabels) {
   return null
 }
 
+// Sidebar order of the pages, for the direction of the page slide.
+const PAGE_ORDER = ['dashboard', 'grades', 'absences', 'planning']
+
+// What a page transition fades: each frosted card on its own (its blur keeps
+// working, unlike under a fading ancestor) and every block without one.
+// Cards with their own arrival animation (.grades-reveal) are left to it.
+function collectFadeBlocks(root, blocks = []) {
+  for (const child of root.children) {
+    if (child.classList.contains('widget-card')) {
+      if (!child.classList.contains('grades-reveal')) blocks.push(child)
+    } else if (child.querySelector('.widget-card')) {
+      collectFadeBlocks(child, blocks)
+    } else {
+      blocks.push(child)
+    }
+  }
+  return blocks
+}
+
 async function loadTdOptionsForAccountModal(yearOption) {
   const treeResponse = await getAdeTree(yearOption.resourceId)
   return buildNextTpStepFromTree(treeResponse?.tree)
@@ -771,6 +800,10 @@ function findAdeTreeNodeById(rootNode, targetId) {
 }
 
 function detectEstablishmentFromAdeTree(treePayload) {
+  if (!treePayload) {
+    return null
+  }
+
   const establishments = universityConfig.establishments
   if (!establishments) {
     return null
@@ -782,10 +815,16 @@ function detectEstablishmentFromAdeTree(treePayload) {
     .map((nodeId) => findAdeTreeNodeById(root, nodeId))
     .filter(Boolean)
 
-  const searchHaystack = currentNodes.flatMap((node) => [
-    String(node.name ?? ''),
-    String(node.path ?? ''),
-  ]).join(' | ').toLowerCase()
+  const searchHaystack = [
+    ...currentNodes.flatMap((node) => [String(node.name ?? ''), String(node.path ?? '')]),
+    String(treePayload?.defaultSelection?.contextLabel ?? ''),
+    String(treePayload?.defaultSelection?.programLabel ?? ''),
+    String(treePayload?.defaultSelection?.name ?? ''),
+  ].join(' | ').toLowerCase()
+
+  if (!searchHaystack.trim()) {
+    return establishments.fallbackId ?? 'iutlan'
+  }
 
   for (const rule of establishments.detectFromAdeTree ?? []) {
     if ((rule.includes ?? []).some((needle) => searchHaystack.includes(needle))) {
@@ -793,7 +832,82 @@ function detectEstablishmentFromAdeTree(treePayload) {
     }
   }
 
-  return establishments.fallbackId ?? null
+  return establishments.fallbackId ?? 'iutlan'
+}
+
+function detectEstablishmentFromSelection(selection) {
+  if (!selection) return null
+  const searchHaystack = [
+    selection.contextLabel,
+    selection.programLabel,
+    selection.parentLabel,
+    selection.label,
+  ].filter(Boolean).join(' | ').toLowerCase()
+
+  if (!searchHaystack.trim()) return null
+
+  for (const rule of universityConfig.establishments?.detectFromAdeTree ?? []) {
+    if ((rule.includes ?? []).some((needle) => searchHaystack.includes(needle))) {
+      return rule.id
+    }
+  }
+
+  if (searchHaystack.includes('enssat') || searchHaystack.includes('ingenieur') || searchHaystack.includes('photonique')) {
+    return 'enssat'
+  }
+
+  if (searchHaystack.includes('but') || searchHaystack.includes('iut') || searchHaystack.includes('iutlan')) {
+    return 'iutlan'
+  }
+
+  return null
+}
+
+function detectEstablishment({ treePayload = null, account = null, user = null, selection = null } = {}) {
+  const establishments = universityConfig.establishments
+  if (!establishments) {
+    return null
+  }
+
+  // 1. Check account attributes if available
+  const accountHaystack = [
+    account?.mail,
+    account?.email,
+    account?.department,
+    account?.ou,
+    account?.eduPersonPrimaryAffiliation,
+    user,
+  ].filter(Boolean).join(' | ').toLowerCase()
+
+  if (accountHaystack.includes('enssat')) {
+    return 'enssat'
+  }
+  if (accountHaystack.includes('iutlan') || accountHaystack.includes('iut-lannion') || accountHaystack.includes('iut lannion') || accountHaystack.includes('iut de lannion')) {
+    return 'iutlan'
+  }
+
+  // 2. Check TP selection
+  const fromSelection = detectEstablishmentFromSelection(selection)
+  if (fromSelection) {
+    return fromSelection
+  }
+
+  // 3. Check ADE tree
+  if (treePayload) {
+    return detectEstablishmentFromAdeTree(treePayload)
+  }
+
+  return null
+}
+
+function hasGradeWidgetsForEstablishment(est) {
+  if (!universityConfig.features?.grades) {
+    return false
+  }
+  if (!universityConfig.establishments) {
+    return true
+  }
+  return Boolean(universityConfig.establishments.byId?.[est]?.gradeWidgets)
 }
 
 function normalizeAdePathLabels(nodes) {
@@ -845,7 +959,31 @@ function buildTpSelectionOptions(nodes, parentNode, contextLabel, extraFields = 
 }
 
 function buildInitialTpOnboardingState(treePayload) {
-  const pathNodes = getAdeTreePathNodes(treePayload)
+  let pathNodes = getAdeTreePathNodes(treePayload)
+
+  // If the user's ADE portal account had no pre-assigned resource, pathNodes is empty.
+  // Instead of showing a dead-end error, look for the establishment branch or list top student formations.
+  if (pathNodes.length === 0 && treePayload?.root) {
+    const root = treePayload.root
+    const etudiantsNode = String(root.id) === '-1'
+      ? root
+      : (root.children ?? []).find((c) => String(c.id) === '-1' || /etudiant/i.test(c.name)) ?? root
+    const topBranches = etudiantsNode.children ?? []
+
+    const enssatBranch = topBranches.find((b) => /enssat/i.test(b.name))
+    if (enssatBranch) {
+      pathNodes = [etudiantsNode, enssatBranch].filter((n) => !['-100', '-1'].includes(String(n.id)))
+    } else if (topBranches.length > 0) {
+      return createEmptyTpOnboardingState({
+        contextLabel: 'Formations',
+        program: null,
+        yearOptions: buildTpSelectionOptions(topBranches, etudiantsNode, 'Formations'),
+        detectedSelections: { year: null, td: null, tp: null },
+        errorMessage: '',
+      })
+    }
+  }
+
   const pathLabels = normalizeAdePathLabels(pathNodes)
   const programNode = pathNodes.length >= 2 ? pathNodes[1] : pathNodes[0] ?? null
   const programIndex = programNode
@@ -1170,7 +1308,7 @@ function App() {
   }, [commitDebugState])
 
   useEffect(() => {
-    clearLegacySensitiveClientCaches()
+    clearLegacySensitiveClientCaches({ keepSessionGrades: true })
   }, [])
 
   const runDebugAction = useCallback(async (label, action) => {
@@ -1207,7 +1345,8 @@ function App() {
     }
 
     function handleWindowKeydown(event) {
-      const key = event.key.toLowerCase()
+      const key = String(event.key ?? '').toLowerCase()
+      if (!key) return
 
       if ((event.metaKey || event.ctrlKey) && event.shiftKey && key === 'd') {
         event.preventDefault()
@@ -1320,7 +1459,23 @@ function App() {
     }
 
     setProfileUser(sessionState.user)
-    setEstablishment(getStoredEstablishment(sessionState.user))
+    const storedSel = getStoredTpSelection(sessionState.user)
+    const existingEst = getStoredEstablishment(sessionState.user)
+    const detected = detectEstablishment({
+      account: sessionState.account,
+      user: sessionState.user,
+      selection: storedSel,
+    })
+    let nextEstablishment = existingEst
+    if (!nextEstablishment || nextEstablishment === 'other') {
+      nextEstablishment = detected || universityConfig.establishments?.fallbackId || 'iutlan'
+    } else if (detected && detected !== existingEst) {
+      nextEstablishment = detected
+    }
+    if (nextEstablishment !== existingEst) {
+      persistEstablishment(nextEstablishment, sessionState.user)
+    }
+    setEstablishment(nextEstablishment)
     setSelectedTp(getStoredTpSelection(sessionState.user))
     setNextClassLookaheadDays(getStoredAdeLookaheadDays(sessionState.user))
     setHiddenWidgets(getStoredHiddenWidgets(sessionState.user))
@@ -1365,6 +1520,20 @@ function App() {
             return
           }
 
+          const currentEst = getStoredEstablishment(sessionState.user)
+          const resolvedEst = (!currentEst || currentEst === 'other')
+            ? (detectEstablishment({
+                account: sessionState.account,
+                user: sessionState.user,
+                selection: storedSelection,
+              }) || universityConfig.establishments?.fallbackId || 'iutlan')
+            : currentEst
+
+          if (resolvedEst !== currentEst) {
+            persistEstablishment(resolvedEst, sessionState.user)
+          }
+          setEstablishment(resolvedEst)
+
           setSelectedTp(storedSelection)
           setTpOnboardingState(createEmptyTpOnboardingState({
             contextLabel: storedSelection.contextLabel ?? '',
@@ -1378,19 +1547,32 @@ function App() {
           return
         }
 
-        let scodocGroupSelection = null
-        try {
-          const gradesResponse = await getGrades()
-          if (gradesResponse?.authenticated && !gradesResponse?.disabled) {
-            scodocGroupSelection = detectScodocGroupSelection(gradesResponse.grades)
-          }
-        } catch {
-          // Grades are best-effort for onboarding auto-selection.
-        }
-
         let treeResponse = await getAdeTree()
         let treePayload = treeResponse?.tree
-        const detectedEstablishment = detectEstablishmentFromAdeTree(treePayload)
+        const detectedEstablishment = detectEstablishment({
+          treePayload,
+          account: sessionState.account,
+          user: sessionState.user,
+        }) || universityConfig.establishments?.fallbackId || 'iutlan'
+
+        persistEstablishment(detectedEstablishment, sessionState.user)
+        setEstablishment(detectedEstablishment)
+
+        let scodocGroupSelection = null
+        if (hasGradeWidgetsForEstablishment(detectedEstablishment)) {
+          try {
+            const gradesResponse = await getGrades()
+            if (gradesResponse?.unavailable && detectedEstablishment === 'iutlan') {
+              const revised = 'enssat'
+              persistEstablishment(revised, sessionState.user)
+              setEstablishment(revised)
+            } else if (gradesResponse?.authenticated && !gradesResponse?.disabled) {
+              scodocGroupSelection = detectScodocGroupSelection(gradesResponse.grades)
+            }
+          } catch {
+            // Grades are best-effort for onboarding auto-selection.
+          }
+        }
         const defaultSelection = treePayload?.defaultSelection?.resourceId
           ? treePayload.defaultSelection
           : null
@@ -1817,6 +1999,22 @@ function App() {
   ), [customBackground, establishment, heroOffset])
   const heroImageCount = useMemo(() => listHeroImages(establishment).length, [establishment])
   const hasMobileTabBar = useMemo(() => getMobileTabItems(establishment).length > 0, [establishment])
+  const route = useAppRoute()
+  // The sidebar and tab bar follow `route` right away (their highlight slides
+  // over); the page content renders from the deferred value, in the
+  // background, so mounting it doesn't freeze that animation.
+  const deferredRoute = useDeferredValue(route)
+  const gradesPageAvailable = isGradesPageAvailable(establishment)
+  const planningPageAvailable = isPlanningPageAvailable()
+  const mailPageAvailable = isMailPageAvailable()
+  const moodlePageAvailable = isMoodlePageAvailable()
+  const isScodocRoute = deferredRoute === 'grades' || deferredRoute === 'absences'
+  const activeRoute = (isScodocRoute && gradesPageAvailable)
+    || (deferredRoute === 'planning' && planningPageAvailable)
+    || (deferredRoute === 'mail' && mailPageAvailable)
+    || (deferredRoute === 'moodle' && moodlePageAvailable)
+    ? deferredRoute
+    : 'dashboard'
 
   // Rejects with a user-facing message (shown in Mon compte) on failure.
   const handleCustomBackgroundChange = useCallback(async (file) => {
@@ -1880,6 +2078,12 @@ function App() {
       persistHiddenWidgets(next, sessionState.user)
       return next
     })
+  }, [sessionState.user])
+
+  const handleEstablishmentChange = useCallback((newEstablishment) => {
+    track('setting_changed', { setting: 'establishment', value: newEstablishment })
+    persistEstablishment(newEstablishment, sessionState.user)
+    setEstablishment(newEstablishment)
   }, [sessionState.user])
 
   const widgetToggles = useMemo(() => getAvailableWidgets(establishment).map((widget) => ({
@@ -2466,6 +2670,51 @@ function App() {
     sessionState.user,
     sessionState.givenName,
   )
+  const isDashboardShellVisible = sessionState.authenticated && !shouldHoldInitialRender && !isProfileSwitching
+    && !shouldShowTpSetup && !shouldShowCompletionScreen
+
+  // /notes or /absences for someone without ScoDoc pages (feature off,
+  // establishment without grades): show the dashboard and drop the dead URL.
+  useEffect(() => {
+    const unavailable = ((route === 'grades' || route === 'absences') && !gradesPageAvailable)
+      || (route === 'planning' && !planningPageAvailable)
+      || (route === 'mail' && !mailPageAvailable)
+    if (isDashboardShellVisible && unavailable) {
+      navigateTo('dashboard', { replace: true })
+    }
+  }, [gradesPageAvailable, isDashboardShellVisible, mailPageAvailable, planningPageAvailable, route])
+
+  const scodocPageRef = useRef(null)
+  const dashboardPageRef = useRef(null)
+  const previousRouteRef = useRef(activeRoute)
+
+  // Each page starts at the top and slides in from the side it comes from,
+  // in sidebar order: from the right going down the list, from the left
+  // going back up.
+  useEffect(() => {
+    const previousRoute = previousRouteRef.current
+    if (previousRoute === activeRoute) {
+      return
+    }
+
+    previousRouteRef.current = activeRoute
+    scrollAppToTop()
+
+    const page = activeRoute === 'dashboard' ? dashboardPageRef.current : scodocPageRef.current
+    if (!page?.animate || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      return
+    }
+
+    const offset = PAGE_ORDER.indexOf(activeRoute) < PAGE_ORDER.indexOf(previousRoute) ? -28 : 28
+    const timing = { duration: 460, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' }
+    // The page itself only slides: opacity on an ancestor would cut the
+    // cards' backdrop blur off from the photo until the end of the fade.
+    page.animate([{ transform: `translateX(${offset}px)` }, { transform: 'none' }], timing)
+    for (const block of collectFadeBlocks(page)) {
+      block.animate([{ opacity: 0 }, { opacity: 1 }], timing)
+    }
+  }, [activeRoute])
+
   const simpleLoadingDots = (
     <span className="inline-flex items-center justify-center gap-[6px] text-text-muted" role="status" aria-live="polite" aria-label="Chargement">
       <span className="lent-button-dot h-[5px] w-[5px] rounded-full bg-current" style={{ animationDelay: '0ms' }} />
@@ -2525,14 +2774,19 @@ function App() {
             showChangelogPill={showChangelogPill}
             establishment={establishment}
           />
-          <div ref={dashboardColumnRef} className={`relative isolate flex flex-col flex-1 min-w-0 4xl:h-screen 4xl:overflow-y-auto 4xl:pl-[calc(var(--sidebar-width,280px)+12px)] ${hasMobileTabBar ? 'max-4xl:pb-[calc(env(safe-area-inset-bottom)+84px)]' : ''}`}>
+          <div ref={dashboardColumnRef} data-app-scroll-root className={`relative isolate flex flex-col flex-1 min-w-0 4xl:h-screen 4xl:overflow-y-auto 4xl:pl-[calc(var(--sidebar-width,280px)+12px)] ${hasMobileTabBar ? 'max-4xl:pb-[calc(env(safe-area-inset-bottom)+84px)]' : ''}`}>
             {/* Hero image behind the header and widget cards, fading into the solid background. */}
             {showWallpaper ? (
               <div
                 aria-hidden="true"
-                className="dashboard-hero pointer-events-none absolute inset-x-0 top-0 -z-10 h-[230px] bg-cover bg-[center_40%] max-md:h-[260px] dark:opacity-60"
+                // Behind the ScoDoc pages the photo runs past the title down to the
+                // first cards, as it does behind the dashboard widgets.
+                className={`dashboard-hero pointer-events-none absolute inset-x-0 top-0 -z-10 bg-cover bg-[center_40%] transition-[height] duration-500 ease-out dark:opacity-60 ${
+                  activeRoute === 'dashboard' ? 'h-[230px] max-md:h-[260px]' : 'h-[420px] max-md:h-[440px]'
+                }`}
                 style={{
-                  ...(heroHeight ? { height: heroHeight } : null),
+                  // The measured height follows the widget row, hidden on other pages.
+                  ...(heroHeight && activeRoute === 'dashboard' ? { height: heroHeight } : null),
                   backgroundImage: `url("${heroImage.src}")`,
                   ...(heroImage.position ? { backgroundPosition: heroImage.position } : null),
                 }}
@@ -2564,7 +2818,26 @@ function App() {
                 </div>
               </div>
             ) : null}
-            <div className="flex-1 min-h-0 4xl:flex-none 4xl:min-h-0">
+            {activeRoute === 'dashboard' ? null : (
+              <div key={activeRoute} ref={scodocPageRef} className="flex-1 min-h-0 4xl:flex-none 4xl:min-h-0">
+                <PageErrorBoundary>
+                  {activeRoute === 'grades' ? <GradesPage storageScope={sessionState.user} /> : null}
+                  {activeRoute === 'absences' ? <AbsencesPage /> : null}
+                  {activeRoute === 'planning' ? (
+                    <PlanningPage selection={selectedTp} sessionUser={sessionState.user} onOpenAccount={handleOpenAccountModal} />
+                  ) : null}
+                  {activeRoute === 'mail' ? (
+                    <MailPage />
+                  ) : null}
+                  {activeRoute === 'moodle' ? (
+                    <MoodlePage />
+                  ) : null}
+                </PageErrorBoundary>
+              </div>
+            )}
+            {/* Kept mounted on other pages: coming back is instant and the
+                widgets don't refetch or report a second dashboard view. */}
+            <div ref={dashboardPageRef} className="flex-1 min-h-0 4xl:flex-none 4xl:min-h-0" hidden={activeRoute !== 'dashboard'}>
               <WidgetContainer
                 userName={sessionState.givenName ?? sessionState.user}
                 isSessionReady={!sessionState.checking}
@@ -2624,6 +2897,8 @@ function App() {
         onShowAppDescriptionsChange={handleShowAppDescriptionsChange}
         anonymousAnalytics={anonymousAnalytics}
         onAnonymousAnalyticsChange={isAnalyticsAvailable ? handleAnonymousAnalyticsChange : null}
+        establishment={establishment}
+        onEstablishmentChange={handleEstablishmentChange}
       />
       <WelcomeFromLent
         visible={welcomeFromLentOpen}
@@ -2637,6 +2912,10 @@ function App() {
         forceIos={forceIosPrompt}
         autoOpen={!settingsTransfer.arrived}
         onVisibleChange={setIsInstallPromptVisible}
+      />
+      <GuidedTour
+        enabled={sessionState.authenticated && !shouldShowCompletionScreen}
+        blocked={welcomeFromLentOpen || isInstallPromptVisible || isAccountModalOpen || hasPendingUpdate}
       />
       <ChangelogSheet />
       <PwaUpdateManager

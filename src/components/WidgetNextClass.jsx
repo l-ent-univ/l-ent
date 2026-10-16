@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from '@iconify/react'
 import universityConfig from '@university'
+import { navigateTo } from '../appRoute'
 import { useWidgetLoadReport } from '../analytics'
 import { publishBriefingSource } from '../briefingSources'
 import { ENT_AUTH_PREFIX, getRecentEntLoginAgeMs, getRequestErrorKind } from '../entApi'
@@ -9,11 +10,11 @@ import {
   buildNextClassCacheEntryKey,
   buildResourceIdsFromSelection,
   fetchUpcomingEvents,
+  getClassHue,
   persistNextClassCache,
   readNextClassCache,
 } from '../upcomingClasses'
 
-const CLASS_COLORS_KEY = 'l-ent:class-colors'
 const NEXT_CLASS_TICK_MS = 30 * 1000
 const NEXT_CLASS_REFRESH_MS = 5 * 60 * 1000
 const NEXT_CLASS_LOGIN_QUIET_MS = 90 * 1000
@@ -30,19 +31,6 @@ function createWidgetState(overrides = {}) {
     errorKind: null,
     complete: true,
     ...overrides,
-  }
-}
-
-function getClassHue(title) {
-  try {
-    const stored = JSON.parse(localStorage.getItem(CLASS_COLORS_KEY) || '{}')
-    if (stored[title] != null) return stored[title]
-    const hue = Math.floor(Math.random() * 360)
-    stored[title] = hue
-    localStorage.setItem(CLASS_COLORS_KEY, JSON.stringify(stored))
-    return hue
-  } catch {
-    return 207
   }
 }
 
@@ -711,12 +699,8 @@ function WidgetNextClass({
   // There the card is a size container: at half width the title gets two
   // lines, teacher and group go (@max-[240px]) and the time range wraps.
   const isStatusWide = ['unconfigured', 'limited', 'empty', 'paused'].includes(widgetState.status)
-  const openAdePlanning = useCallback(() => {
-    if (!ADE_HREF) {
-      return
-    }
-
-    window.open(ADE_HREF, '_blank', 'noopener,noreferrer')
+  const openPlanningPage = useCallback(() => {
+    navigateTo('planning')
   }, [])
   const handleKeyDown = useCallback((event) => {
     if (event.key !== 'Enter' && event.key !== ' ') {
@@ -724,8 +708,8 @@ function WidgetNextClass({
     }
 
     event.preventDefault()
-    openAdePlanning()
-  }, [openAdePlanning])
+    openPlanningPage()
+  }, [openPlanningPage])
 
   // Hidden when the planning can't be loaded; the background refresh brings
   // the card back once ADE answers again.
@@ -737,13 +721,13 @@ function WidgetNextClass({
     <article
       className={`next-class-widget widget-card relative z-0 hover:z-10 shadow-md flex-[0_1_190px] h-[140px] p-4 border border-white rounded-[22px] overflow-visible text-base leading-6 min-w-0 max-2xl:flex-[1_1_calc(50%-6px)] max-2xl:min-w-[min(320px,100%)] max-md:h-[132px] max-md:p-3 max-md:rounded-[20px] max-xs:h-[140px] max-xs:min-w-0 max-xs:@container flex flex-col gap-[6px] text-text cursor-pointer ${isStatusWide ? 'max-xs:flex-[1_1_100%]' : 'max-xs:flex-[1_1_calc(50%-4px)]'} ${wide ? '2xl:flex-[0_1_380px]' : isStatusWide ? '2xl:flex-[0_1_300px]' : ''} ${visible ? 'widget-card-visible' : ''}`}
       style={{ '--class-gradient': classGradient, '--class-gradient-dark': classGradientDark }}
-      aria-label="Prochain cours ouvrir ADE"
-      onClick={openAdePlanning}
+      aria-label="Voir mon planning"
+      onClick={openPlanningPage}
       onKeyDown={handleKeyDown}
       role="link"
       tabIndex={0}
     >
-      <Icon icon="carbon:arrow-up-right" className="grade-corner-arrow absolute top-3 right-3 w-[14px] h-[14px] text-text opacity-0 transition-opacity duration-150 ease-in-out shrink-0" aria-hidden="true" />
+      <Icon icon="carbon:chevron-right" className="grade-corner-arrow absolute top-3 right-3 w-[15px] h-[15px] text-text opacity-0 transition-opacity duration-150 ease-in-out shrink-0" aria-hidden="true" />
       <div className="flex items-center gap-[5px] min-w-0">
         <span className="m-0 min-w-0 leading-[1.06] text-base font-medium text-text-muted overflow-hidden text-ellipsis whitespace-nowrap max-md:text-[15px]">Prochain cours</span>
       </div>
@@ -819,7 +803,7 @@ function WidgetNextClass({
             {statusCopy.action ? (
               <span className="inline-flex items-center gap-1 text-[13px] font-semibold opacity-80">
                 {statusCopy.action}
-                <Icon icon="carbon:arrow-up-right" className="w-[13px] h-[13px] shrink-0" aria-hidden="true" />
+                <Icon icon="carbon:chevron-right" className="w-[13px] h-[13px] shrink-0" aria-hidden="true" />
               </span>
             ) : null}
           </div>

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Icon } from '@iconify/react'
+import { navigateTo } from '../appRoute'
 import waveGlowLight from '../assets/wave-glow-light.png'
 import waveGlowDark from '../assets/wave-glow-dark.png'
 import { GRADES_LAUNCH_HREF, getAverageGrade, openGradesService } from '../entApi'
@@ -99,25 +100,26 @@ function LiveWidgetAverageGrade({ visible }) {
   const avgDisplay = data.average != null ? String(parseFloat(data.average)) : '—'
   const promoDisplay = data.promoAverage != null ? String(parseFloat(data.promoAverage)) : null
   const canOpen = Boolean(GRADES_LAUNCH_HREF)
+  const handleOpenGrades = () => {
+    navigateTo('grades')
+  }
   const handleKeyDown = (event) => {
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault()
-      openGradesService()
+      handleOpenGrades()
     }
   }
 
   return (
     <article
-      className={`${CARD_CLASSES} border-white bg-widget-bg flex flex-col gap-[6px] text-text ${canOpen ? 'cursor-pointer' : ''} ${visible ? 'widget-card-visible' : ''}`}
-      aria-label={`Moyenne générale: ${avgDisplay} sur 20${promoDisplay ? ` (promo: ${promoDisplay})` : ''}`}
-      role={canOpen ? 'link' : undefined}
-      tabIndex={canOpen ? 0 : undefined}
-      onClick={canOpen ? openGradesService : undefined}
-      onKeyDown={canOpen ? handleKeyDown : undefined}
+      className={`${CARD_CLASSES} border-white bg-widget-bg flex flex-col gap-[6px] text-text cursor-pointer ${visible ? 'widget-card-visible' : ''}`}
+      aria-label={`Moyenne générale: ${avgDisplay} sur 20${promoDisplay ? ` (promo: ${promoDisplay})` : ''} - Ouvrir mes notes`}
+      role="link"
+      tabIndex={0}
+      onClick={handleOpenGrades}
+      onKeyDown={handleKeyDown}
     >
-      {canOpen ? (
-        <Icon icon="carbon:arrow-up-right" className="grade-corner-arrow absolute top-[14px] right-[14px] w-[14px] h-[14px] text-text opacity-0 transition-opacity duration-150 ease-in-out shrink-0" aria-hidden="true" />
-      ) : null}
+      <Icon icon="carbon:chevron-right" className="grade-corner-arrow absolute top-[14px] right-[14px] w-[15px] h-[15px] text-text opacity-0 transition-opacity duration-150 ease-in-out shrink-0" aria-hidden="true" />
       <AverageGradeHeader />
       <AverageGradeWaves />
       <AverageGradeValues avgDisplay={avgDisplay} promoDisplay={promoDisplay} />

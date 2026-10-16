@@ -1,13 +1,16 @@
 import { useEffect, useState } from 'react'
 import { Icon, iconLoaded, loadIcons } from '@iconify/react'
+import { navigateTo, scrollAppToTop, useAppRoute } from '../appRoute'
+import { prefetchGradesPage } from '../entApi'
 import { getMobileTabItems, openNavItemLink } from '../navItems'
+import { useSlidingIndicator } from '../useSlidingIndicator'
+import { SlidingIndicator } from './SlidingIndicator'
 
 // How long the "unavailable" bubble stays above a greyed-out tab.
 const NOTICE_DURATION_MS = 3200
 
-// The dashboard itself: always the selected tab, since the others open
-// another site. Tapping it scrolls back to the top.
-const HOME_TAB = { id: 'home', label: 'Accueil', icon: 'ph:house-fill', selected: true }
+// The dashboard. Tapping the selected tab scrolls back to the top.
+const HOME_TAB = { id: 'home', label: 'Accueil', icon: 'ph:house-fill', route: 'dashboard' }
 
 // Up to three tabs: a compact pill sized to roomy tabs. From four on, like
 // iOS, the bar spans the screen (up to 420px) and the tabs share it equally,
@@ -24,8 +27,9 @@ function getTabSizeClasses(count) {
 // shortcuts as the sidebar (grades, planning, mail, Moodle); a greyed-out tab
 // explains itself in a bubble instead of a hover tooltip.
 function MobileTabBar({ establishment }) {
+  const route = useAppRoute()
   const shortcuts = getMobileTabItems(establishment)
-  const items = [HOME_TAB, ...shortcuts]
+  const items = [HOME_TAB, ...shortcuts].map((item) => ({ ...item, selected: Boolean(item.route) && item.route === route }))
   const tabSizeClasses = getTabSizeClasses(items.length)
   const iconNames = items.map((item) => item.icon)
   const iconKey = iconNames.join(',')
@@ -56,13 +60,16 @@ function MobileTabBar({ establishment }) {
     return () => window.clearTimeout(timeoutId)
   }, [noticeItem])
 
+  // Keyed on readiness too: the bar (and its lens) only mounts once icons are in.
+  const [barRef, lensBox] = useSlidingIndicator(`${route}:${areIconsReady}:${items.length}`)
+
   if (shortcuts.length === 0 || !areIconsReady) {
     return null
   }
 
   const handleSelect = (event, item) => {
     if (item.selected) {
-      window.scrollTo({ top: 0, behavior: 'smooth' })
+      scrollAppToTop({ smooth: true })
       return
     }
 
@@ -72,19 +79,20 @@ function MobileTabBar({ establishment }) {
       return
     }
 
-    if (item.href) {
-      event.preventDefault()
-      openNavItemLink(item, 'tabbar')
+    if (item.id === HOME_TAB.id) {
+      navigateTo('dashboard')
       return
     }
 
-    document.getElementById(item.targetId)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    event.preventDefault()
+    openNavItemLink(item, 'tabbar')
   }
 
   return (
     <nav
       className="4xl:hidden pointer-events-none fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+14px)] z-30 flex flex-col items-center gap-2 px-4"
       aria-label="Raccourcis"
+      data-tour="nav"
     >
       {noticeItem ? (
         <p className="mobile-tab-bar-notice m-0 max-w-[300px] rounded-[16px] bg-black px-3 py-2 text-center font-body text-[12px] font-medium leading-tight text-white shadow-[0_12px_32px_rgba(0,0,0,0.18)] animate-modal-card-in dark:bg-white dark:text-black" role="status">
@@ -94,9 +102,10 @@ function MobileTabBar({ establishment }) {
           ) : null}
         </p>
       ) : null}
-      <div className={`mobile-tab-bar pointer-events-auto flex items-center gap-1 rounded-full p-1.5 animate-modal-card-in ${items.length >= WIDE_BAR_MIN_TABS ? 'w-full max-w-[420px]' : 'max-w-full'}`}>
+      <div ref={barRef} className={`mobile-tab-bar relative pointer-events-auto flex items-center gap-1 rounded-full p-1.5 animate-modal-card-in ${items.length >= WIDE_BAR_MIN_TABS ? 'w-full max-w-[420px]' : 'max-w-full'}`}>
+        <SlidingIndicator box={lensBox} className="mobile-tab-bar-lens rounded-full" />
         {items.map((item) => {
-          const className = `mobile-tab-bar-item flex h-[54px] ${tabSizeClasses} flex-col items-center justify-center gap-[3px] rounded-full border-0 text-text no-underline cursor-pointer transition-[background-color,transform] duration-150 ease-out active:scale-[0.94] ${item.selected ? 'mobile-tab-bar-item--selected' : 'bg-transparent'} ${item.disabled ? 'opacity-45' : ''}`
+          const className = `mobile-tab-bar-item relative flex h-[54px] ${tabSizeClasses} flex-col items-center justify-center gap-[3px] rounded-full border-0 text-text no-underline cursor-pointer transition-[background-color,transform] duration-150 ease-out active:scale-[0.94] ${item.selected ? 'mobile-tab-bar-item--selected' : 'bg-transparent'} ${item.disabled ? 'opacity-45' : ''}`
           const content = (
             <>
               {/* `ssr`: draw on the first render. The bar only mounts once these icons
@@ -115,6 +124,7 @@ function MobileTabBar({ establishment }) {
               rel={item.target === '_blank' ? 'noopener noreferrer' : undefined}
               className={className}
               onClick={(event) => handleSelect(event, item)}
+              onPointerDown={item.route === 'grades' || item.route === 'absences' ? prefetchGradesPage : undefined}
             >
               {content}
             </a>
@@ -124,8 +134,10 @@ function MobileTabBar({ establishment }) {
               type="button"
               aria-current={item.selected ? 'page' : undefined}
               aria-disabled={item.disabled ? 'true' : undefined}
+              data-active={item.selected ? 'true' : undefined}
               className={className}
               onClick={(event) => handleSelect(event, item)}
+              onPointerDown={item.route === 'grades' || item.route === 'absences' ? prefetchGradesPage : undefined}
             >
               {content}
             </button>

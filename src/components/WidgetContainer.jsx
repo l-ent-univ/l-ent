@@ -5,6 +5,7 @@ import AvailableApplications from './AvailableApplications'
 import GreetingCard from './GreetingCard'
 import WidgetDeadlines from './WidgetDeadlines'
 import WidgetLatestGrade from './WidgetLatestGrade'
+import WidgetAbsences from './WidgetAbsences'
 import WidgetListStrip from './WidgetListStrip'
 import WidgetNextClass from './WidgetNextClass'
 import WidgetRecentMail from './WidgetRecentMail'
@@ -216,6 +217,7 @@ function WidgetContainer({
   const isShown = (widgetId) => isWidgetAvailable(widgetId, establishment) && !hiddenWidgets.includes(widgetId)
   const showNextClass = debugNextClass || isShown('nextClass')
   const showGradeWidgets = isShown('latestGrade')
+  const showAbsencesWidget = isShown('absences')
   const showMailWidget = isShown('mail')
   const showDeadlinesWidget = isShown('deadlines')
   const pairListWidgets = showMailWidget && showDeadlinesWidget
@@ -266,7 +268,7 @@ function WidgetContainer({
             />
           </div>
         ) : null}
-        {showGradeWidgets || showMailWidget || showDeadlinesWidget ? (
+        {showGradeWidgets || showAbsencesWidget || showMailWidget || showDeadlinesWidget ? (
           // Below 2xl the grade and list card share their own row; from 2xl
           // the wrapper dissolves (display: contents) into the widget row.
           // empty:hidden covers the list card rendering nothing (no session).
@@ -276,12 +278,13 @@ function WidgetContainer({
           // so the grade shares its row with the next class; the two list
           // cards become a swipeable strip there (WidgetListStrip).
           <div
-            id={showGradeWidgets ? 'sidebar-section-grades' : undefined}
+            id={showGradeWidgets || showAbsencesWidget ? 'sidebar-section-grades' : undefined}
             className={pairListWidgets ? 'contents' : 'flex-[1_1_100%] min-w-0 flex flex-wrap items-stretch gap-3 max-md:gap-2 empty:hidden 2xl:contents max-xs:contents'}
           >
             {/* Bloc « Moyenne Générale » masqué pour l'instant — réimporter
                 WidgetAverageGrade et le rendre ici pour le réactiver. */}
             {showGradeWidgets ? <WidgetLatestGrade visible={areWidgetsVisible} /> : null}
+            {showAbsencesWidget ? <WidgetAbsences visible={areWidgetsVisible} /> : null}
             {pairListWidgets ? (
               <WidgetListStrip labels={listCards.map(({ label }) => label)} visible={areWidgetsVisible}>
                 {listCards.map(({ card }) => card)}

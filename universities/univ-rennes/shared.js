@@ -26,7 +26,25 @@ export const branding = {
     intro: "est un client alternatif aux services numériques de l'Université de Rennes.",
     disclaimer:
       "Tafac est un projet étudiant indépendant, non officiel et non affilié à l'Université de Rennes. Tes identifiants servent uniquement à te connecter et ne sont jamais stockés.",
-    authorLine: "Fait avec amour par un étudiant de l'IUT de Lannion",
+    authorLine: "Fait avec amour par des étudiants de l'IUT de Lannion",
+    authors: [
+      {
+        name: 'Elouan',
+        handle: 'Klaynight',
+        role: "Étudiant au BUT Informatique de Lannion",
+        avatar: 'https://github.com/Klaynight-dev.png',
+        url: 'https://klaynight.fr',
+        github: 'https://github.com/Klaynight-dev',
+      },
+      {
+        name: 'Tom',
+        handle: 'tom-things',
+        role: "Étudiant au BUT Informatique de Lannion",
+        avatar: 'https://github.com/tom-things.png',
+        url: 'https://tomthings.fr',
+        github: 'https://github.com/tom-things',
+      },
+    ],
     authorUrl: 'https://tomthings.fr',
     repoUrl: 'https://github.com/l-ent-univ/tafac',
   },
@@ -81,4 +99,10 @@ export const gradesCopy = {
   unavailableTitle: 'Notes indisponibles',
   unavailableDetail: 'ScoDoc ne répond pas pour le moment',
   disabledPillLabel: 'Notes indisponibles',
+  // Secrétariat qui reçoit les justificatifs d'absence, par acronyme de
+  // département ScoDoc (« MMI », « INFO »…), `default` pour les autres. Le bouton
+  // « Justifier » ouvre un mail pré-rempli (mailto:) : rien ne transite par
+  // Tafac. Sans adresse, le bouton n'apparaît pas.
+  // Exemple : { MMI: 'secretariat-mmi@univ-rennes.fr' }
+  absenceSecretariats: {},
 }

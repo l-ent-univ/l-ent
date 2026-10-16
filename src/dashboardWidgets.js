@@ -26,6 +26,13 @@ export const DASHBOARD_WIDGETS = [
       && Boolean(getEstablishmentConfig(establishment)?.gradeWidgets),
   },
   {
+    id: 'absences',
+    label: 'Absences',
+    icon: 'carbon:event-schedule',
+    isAvailable: (establishment) => Boolean(universityConfig.features?.grades)
+      && Boolean(getEstablishmentConfig(establishment)?.gradeWidgets),
+  },
+  {
     id: 'mail',
     label: 'Mails récents',
     icon: 'carbon:email',

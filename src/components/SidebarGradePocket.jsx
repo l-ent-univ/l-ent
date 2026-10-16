@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import SidebarStatPocket from './SidebarStatPocket'
+import { navigateTo } from '../appRoute'
 import { GRADES_LAUNCH_HREF, getLatestGrade, openGradesService } from '../entApi'
 import {
   DEMO_LATEST_GRADE,
@@ -62,7 +63,7 @@ function LiveSidebarGradePocket() {
       label="Dernière note"
       value={noteDisplay}
       max={noteMax}
-      onClick={GRADES_LAUNCH_HREF ? openGradesService : undefined}
+      onClick={() => navigateTo('grades')}
       caption={gradeName}
       ariaLabel={`Dernière note: ${noteDisplay} sur ${noteMax}${ariaTooltipParts ? ` (${ariaTooltipParts})` : ''}`}
       tooltipPrimary={gradeName}
